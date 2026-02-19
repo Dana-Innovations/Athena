@@ -1,5 +1,7 @@
 import { refreshChat } from "./app-chat.ts";
 import {
+  startApolloPolling,
+  stopApolloPolling,
   startLogsPolling,
   stopLogsPolling,
   startDebugPolling,
@@ -160,6 +162,11 @@ export function setTab(host: SettingsHost, next: Tab) {
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
   } else {
     stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);
+  }
+  if (next === "apollo") {
+    startApolloPolling(host as unknown as Parameters<typeof startApolloPolling>[0]);
+  } else {
+    stopApolloPolling(host as unknown as Parameters<typeof stopApolloPolling>[0]);
   }
   void refreshActiveTab(host);
   syncUrlWithTab(host, next, false);
@@ -362,6 +369,11 @@ export function setTabFromRoute(host: SettingsHost, next: Tab) {
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
   } else {
     stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);
+  }
+  if (next === "apollo") {
+    startApolloPolling(host as unknown as Parameters<typeof startApolloPolling>[0]);
+  } else {
+    stopApolloPolling(host as unknown as Parameters<typeof stopApolloPolling>[0]);
   }
   if (host.connected) {
     void refreshActiveTab(host);

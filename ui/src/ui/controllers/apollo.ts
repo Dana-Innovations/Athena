@@ -60,9 +60,13 @@ export async function loadApolloData(state: ApolloState): Promise<void> {
   state.apolloError = null;
 
   try {
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const endDate = now.toISOString();
+
     const [statusRes, usageRes] = await Promise.allSettled([
       state.client.request("sonance.apollo.status"),
-      state.client.request("sonance.apollo.usage", { limit: 50 }),
+      state.client.request("sonance.apollo.usage", { limit: 50, startDate, endDate }),
     ]);
 
     if (statusRes.status === "fulfilled") {

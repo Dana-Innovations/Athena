@@ -1,4 +1,5 @@
 import type { OpenClawApp } from "./app.ts";
+import { loadApolloData } from "./controllers/apollo.ts";
 import { loadDebug } from "./controllers/debug.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
@@ -7,6 +8,7 @@ type PollingHost = {
   nodesPollInterval: number | null;
   logsPollInterval: number | null;
   debugPollInterval: number | null;
+  apolloPollInterval: number | null;
   tab: string;
 };
 
@@ -66,4 +68,24 @@ export function stopDebugPolling(host: PollingHost) {
   }
   clearInterval(host.debugPollInterval);
   host.debugPollInterval = null;
+}
+
+export function startApolloPolling(host: PollingHost) {
+  if (host.apolloPollInterval != null) {
+    return;
+  }
+  host.apolloPollInterval = window.setInterval(() => {
+    if (host.tab !== "apollo") {
+      return;
+    }
+    void loadApolloData(host as unknown as OpenClawApp);
+  }, 30_000);
+}
+
+export function stopApolloPolling(host: PollingHost) {
+  if (host.apolloPollInterval == null) {
+    return;
+  }
+  clearInterval(host.apolloPollInterval);
+  host.apolloPollInterval = null;
 }

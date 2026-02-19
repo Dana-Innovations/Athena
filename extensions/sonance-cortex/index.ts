@@ -446,7 +446,7 @@ function registerMcpTools(
   callFn: (toolName: string, params: Record<string, unknown>) => Promise<string>,
 ): void {
   for (const tool of tools) {
-    const toolName = mcpName + "_" + tool.name;
+    const toolName = "cortex_" + mcpName + "__" + tool.name;
     const inputProps = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
 
     api.registerTool({
@@ -580,9 +580,10 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
           ? jsonSchemaToTypeBox(tool.inputSchema as Parameters<typeof jsonSchemaToTypeBox>[0])
           : Type.Object({});
 
+        const prefixedName = "cortex_" + tool.name;
         api.registerTool({
-          name: tool.name,
-          label: tool.name,
+          name: prefixedName,
+          label: prefixedName,
           description: `[cortex-mcp] ${tool.description ?? tool.name}`,
           parameters: schema,
           async execute(_toolCallId, params) {
@@ -599,7 +600,7 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
             return wrapTextResult(text || JSON.stringify(callResult ?? {}));
           },
         });
-        api.logger.info(`[sonance-cortex] registered bridge tool: ${tool.name}`);
+        api.logger.info(`[sonance-cortex] registered bridge tool: ${prefixedName}`);
       }
       api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from CompositeMCPBridge`);
     })
