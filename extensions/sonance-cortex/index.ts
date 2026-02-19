@@ -471,6 +471,8 @@ function registerMcpTools(
   api.logger.info(
     "[sonance-cortex] loaded " + tools.length + " tool(s) from MCP '" + mcpName + "'",
   );
+
+  syncMcpAgent(api.logger, mcpName, tools);
 }
 
 /**
@@ -603,6 +605,24 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
         api.logger.info(`[sonance-cortex] registered bridge tool: ${prefixedName}`);
       }
       api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from CompositeMCPBridge`);
+
+      // Sync agents for each MCP namespace discovered via the bridge
+      const mcpGroups = new Map<string, typeof tools>();
+      for (const tool of tools) {
+        const sep = tool.name.indexOf("__");
+        if (sep === -1) continue;
+        const mcpName = tool.name.slice(0, sep);
+        const shortName = tool.name.slice(sep + 2);
+        let list = mcpGroups.get(mcpName);
+        if (!list) {
+          list = [];
+          mcpGroups.set(mcpName, list);
+        }
+        list.push({ ...tool, name: shortName });
+      }
+      for (const [mcpName, mcpTools] of mcpGroups) {
+        syncMcpAgent(api.logger, mcpName, mcpTools);
+      }
     })
     .catch((err) => {
       api.logger.warn(`[sonance-cortex] CompositeMCPBridge discovery failed: ${String(err)}`);
@@ -677,6 +697,98 @@ function bridgeHttpMcp(api: OpenClawPluginApi, mcp: McpServerEntry): void {
         "[sonance-cortex] failed to load tools from MCP '" + mcp.name + "': " + String(err),
       );
     });
+}
+
+// ---------------------------------------------------------------------------
+// Agent sync — writes agent entries to athena.json so MCP tools appear on the
+// Agents page. Mirrors cortex-tools/src/agent-sync.ts but runs inline so
+// agent discovery works without needing the cortex-tools plugin loaded.
+// ---------------------------------------------------------------------------
+
+function syncMcpAgent(
+  logger: { info(msg: string): void; warn(msg: string): void },
+  mcpName: string,
+  tools: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>,
+): void {
+  // Dynamic imports so this doesn't break if fs/os/path aren't bundled
+  // in some future browser-only context.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("node:fs") as typeof import("node:fs");
+    const os = require("node:os") as typeof import("node:os");
+    const path = require("node:path") as typeof import("node:path");
+
+    const stateDir =
+      process.env.ATHENA_STATE_DIR?.trim() ||
+      process.env.OPENCLAW_STATE_DIR?.trim() ||
+      path.join(os.homedir(), ".athena");
+    // Try athena.json first (newer), fall back to openclaw.json (legacy)
+    const athenaPath = path.join(stateDir, "athena.json");
+    const openclawPath = path.join(stateDir, "openclaw.json");
+    const configPath = fs.existsSync(athenaPath) ? athenaPath : openclawPath;
+
+    let config: Record<string, unknown>;
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    } catch {
+      logger.warn("[sonance-cortex] agent sync: could not read athena.json, skipping");
+      return;
+    }
+
+    if (!config.agents || typeof config.agents !== "object") {
+      (config as Record<string, unknown>).agents = {};
+    }
+    const agents = config.agents as Record<string, unknown>;
+    if (!Array.isArray(agents.list)) {
+      agents.list = [];
+    }
+    const agentList = agents.list as Record<string, unknown>[];
+
+    const agentId = "cortex-" + mcpName.replace(/_/g, "-");
+    const displayName = mcpName
+      .split(/[-_]/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+
+    const toolNames = tools.map((t) => "cortex_" + mcpName + "__" + t.name);
+
+    const existing = agentList.find((a) => a.id === agentId);
+    if (existing) {
+      if (!existing.tools || typeof existing.tools !== "object") {
+        existing.tools = {};
+      }
+      const toolsCfg = existing.tools as Record<string, unknown>;
+      toolsCfg.profile = "full";
+      toolsCfg.allow = toolNames;
+    } else {
+      agentList.push({
+        id: agentId,
+        name: displayName,
+        tools: { profile: "full", allow: toolNames },
+      });
+    }
+
+    // Write workspace directory with basic identity
+    const workspaceDir = path.join(stateDir, "workspace-" + agentId);
+    fs.mkdirSync(workspaceDir, { recursive: true });
+
+    const identityPath = path.join(workspaceDir, "IDENTITY.md");
+    if (!fs.existsSync(identityPath)) {
+      fs.writeFileSync(identityPath, `- Name: ${displayName}\n- Emoji: \uD83D\uDD27\n`, "utf-8");
+    }
+
+    // Write config back
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    logger.info(
+      "[sonance-cortex] agent sync: synced agent '" +
+        agentId +
+        "' with " +
+        toolNames.length +
+        " tools",
+    );
+  } catch (err) {
+    logger.warn("[sonance-cortex] agent sync failed: " + String(err));
+  }
 }
 
 export default cortexPlugin;
