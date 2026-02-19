@@ -353,10 +353,11 @@ async function executeGatewayRequestWithScopes<T>(params: {
     // Auto-inject Sonance SSO id_token as the x-sonance-token header
     // when sonance-sso is configured and a stored session exists.
     const wsHeaders: Record<string, string> = {};
-    if (config.gateway?.auth?.mode === "sonance-sso") {
+    const callConfig = opts.config ?? loadConfig();
+    if (callConfig.gateway?.auth?.mode === "sonance-sso") {
       const sonanceToken = loadSonanceIdToken();
       if (sonanceToken) {
-        const header = config.gateway.auth.sonanceSso?.tokenHeader ?? "x-sonance-token";
+        const header = callConfig.gateway.auth.sonanceSso?.tokenHeader ?? "x-sonance-token";
         wsHeaders[header] = sonanceToken;
       }
     }

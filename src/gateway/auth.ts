@@ -415,10 +415,6 @@ export async function authorizeGatewayConnect(params: {
     };
   }
 
-  if (auth.mode === "none") {
-    return { ok: true, method: "none" };
-  }
-
   const limiter = params.rateLimiter;
   const ip =
     params.clientIp ?? resolveRequestClientIp(req, trustedProxies) ?? req?.socket?.remoteAddress;
