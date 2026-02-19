@@ -232,11 +232,7 @@ async function runSonanceLocalOnboard(
  */
 async function runSonanceSsoOnboard(
   runtime: RuntimeEnv,
-  ssoConfig: NonNullable<ReturnType<typeof loadConfig>["gateway"]>["auth"] extends {
-    sonanceSso?: infer S;
-  }
-    ? NonNullable<S>
-    : never,
+  ssoConfig: import("../config/types.gateway.js").SonanceSsoConfig,
   tenantId: string,
   clientId: string,
 ): Promise<void> {

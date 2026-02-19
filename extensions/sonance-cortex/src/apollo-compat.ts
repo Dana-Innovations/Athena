@@ -1,31 +1,79 @@
 /**
  * Apollo SDK-compat fetch interceptor.
  *
- * Apollo's Pydantic model expects `system` as a plain string, but the
- * Anthropic SDK (used by pi-ai) sends it as an array of content blocks
- * with cache_control. This module patches globalThis.fetch to flatten
- * the `system` field for requests targeting the Apollo URL.
+ * Responsibilities:
+ * 1. Inject `x-cortex-user-id` header on Apollo-bound requests so Apollo
+ *    can resolve per-user Anthropic keys (Phase 2 multi-auth).
+ * 2. Capture `key_source` from Apollo responses — first from the
+ *    `x-cortex-key-source` header (non-streaming), then as a fallback
+ *    from the `cortex_usage.keySource` field in the response body.
  *
- * Removable once Apollo accepts `Union[str, list[ContentBlock]]` for system.
+ * Note: system field flattening (array → string) was removed — Cortex
+ * natively accepts both `system: "string"` and `system: [{type, text}]`.
  */
 
-type ContentBlock = { type?: string; text?: string };
+export type ApolloCompatOptions = {
+  apolloBaseUrl: string;
+  logger: { info(msg: string): void; warn(msg: string): void };
+  /** Returns the current Sonance user ID, if known. */
+  resolveUserId?: () => string | undefined;
+};
 
-function flattenSystemBlocks(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b) => b.type === "text" || !b.type)
-    .map((b) => b.text ?? "")
-    .join("\n\n");
+// Shared key-source tracking — last `key_source` seen from Apollo responses.
+const KEY_SOURCE_SYM = Symbol.for("sonance.apollo.lastKeySource");
+
+/** Read the last key_source value captured from an Apollo response. */
+export function getLastApolloKeySource(): string | undefined {
+  return (globalThis as Record<symbol, unknown>)[KEY_SOURCE_SYM] as string | undefined;
+}
+
+function setLastApolloKeySource(source: string): void {
+  (globalThis as Record<symbol, unknown>)[KEY_SOURCE_SYM] = source;
 }
 
 /**
- * Install a fetch wrapper that transforms Anthropic SDK requests for Apollo.
+ * Try to extract keySource from the response — header first, then body.
+ * For non-streaming responses, clones the response to read the body
+ * without consuming the original stream.
+ */
+async function captureKeySource(response: Response): Promise<void> {
+  const fromHeader = response.headers.get("x-cortex-key-source");
+  if (fromHeader) {
+    setLastApolloKeySource(fromHeader);
+    return;
+  }
+
+  // Fallback: parse keySource from the cortex_usage field in the response body.
+  // Only attempt for JSON responses (non-streaming).
+  const ct = response.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return;
+
+  try {
+    const clone = response.clone();
+    const body = await clone.json();
+    const ks = body?.cortex_usage?.keySource ?? body?.cortex_usage?.key_source;
+    if (typeof ks === "string" && ks) {
+      setLastApolloKeySource(ks);
+    }
+  } catch {
+    // Body parse failed — ignore
+  }
+}
+
+/**
+ * Install a fetch wrapper that enriches Apollo-bound requests.
  * Returns a teardown function that restores the original fetch.
  */
 export function installApolloFetchCompat(
-  apolloBaseUrl: string,
-  logger: { info(msg: string): void; warn(msg: string): void },
+  apolloBaseUrlOrOpts: string | ApolloCompatOptions,
+  loggerArg?: { info(msg: string): void; warn(msg: string): void },
 ): () => void {
+  const opts: ApolloCompatOptions =
+    typeof apolloBaseUrlOrOpts === "string"
+      ? { apolloBaseUrl: apolloBaseUrlOrOpts, logger: loggerArg! }
+      : apolloBaseUrlOrOpts;
+
+  const { apolloBaseUrl, logger, resolveUserId } = opts;
   const originalFetch = globalThis.fetch;
   const apolloOrigin = new URL(apolloBaseUrl).origin;
 
@@ -37,33 +85,27 @@ export function installApolloFetchCompat(
           ? input.toString()
           : (input as Request).url;
 
-    if (
-      url.startsWith(apolloOrigin) &&
-      url.includes("/messages") &&
-      init?.method === "POST" &&
-      init.body
-    ) {
-      try {
-        const bodyStr =
-          typeof init.body === "string"
-            ? init.body
-            : new TextDecoder().decode(init.body as ArrayBuffer);
-        const parsed = JSON.parse(bodyStr);
+    const isApollo = url.startsWith(apolloOrigin);
 
-        if (Array.isArray(parsed.system)) {
-          parsed.system = flattenSystemBlocks(parsed.system);
-          logger.info("[apollo-compat] flattened system array → string for Apollo");
-          return originalFetch(input, {
-            ...init,
-            body: JSON.stringify(parsed),
-          });
-        }
-      } catch {
-        // JSON parse failed — forward as-is
+    if (isApollo) {
+      const userId = resolveUserId?.();
+      if (userId) {
+        const existingHeaders = new Headers(init?.headers as HeadersInit);
+        existingHeaders.set("x-cortex-user-id", userId);
+        const resp = await originalFetch(input, {
+          ...init,
+          headers: Object.fromEntries(existingHeaders.entries()),
+        });
+        void captureKeySource(resp);
+        return resp;
       }
     }
 
-    return originalFetch(input, init);
+    const resp = await originalFetch(input, init);
+    if (isApollo) {
+      void captureKeySource(resp);
+    }
+    return resp;
   };
 
   globalThis.fetch = wrappedFetch;

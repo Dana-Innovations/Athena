@@ -84,6 +84,12 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
           anthropic: {
             ...anthropicProvider,
             baseUrl: anthropicProvider.baseUrl ?? apolloBaseUrl,
+            // Apollo exposes an Anthropic Messages API-compatible endpoint
+            api: anthropicProvider.api ?? "anthropic-messages",
+            models: anthropicProvider.models ?? [
+              { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5" },
+              { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
+            ],
           },
         },
       }

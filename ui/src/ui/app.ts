@@ -291,6 +291,11 @@ export class OpenClawApp extends LitElement {
   // Non-reactive (don’t trigger renders just for timer bookkeeping).
   usageQueryDebounceTimer: number | null = null;
 
+  @state() apolloLoading = false;
+  @state() apolloError: string | null = null;
+  @state() apolloStatus: import("./controllers/apollo.js").ApolloStatusResult | null = null;
+  @state() apolloUsage: import("./controllers/apollo.js").ApolloUsageResult | null = null;
+
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];
   @state() cronStatus: CronStatus | null = null;

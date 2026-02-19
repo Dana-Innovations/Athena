@@ -55,6 +55,100 @@ export type CortexAuditPayload = {
   }>;
 };
 
+// ── Key management types (Apollo Phase 2 multi-auth) ──────────────────
+
+export type KeyConfig = {
+  keyType: "api_key" | "oauth_token";
+  /** Masked key value (e.g., "sk-ant-...xxxx") */
+  maskedKey?: string;
+  label?: string;
+  isActive: boolean;
+  lastVerifiedAt?: string;
+  lastError?: string;
+  expiresAt?: string;
+};
+
+export type KeyStatus = {
+  activeSource: "user_key" | "user_oauth" | "org" | "none";
+  sources?: Record<
+    string,
+    {
+      available: boolean;
+      label?: string;
+      lastVerified?: string;
+      lastError?: string;
+      expiresAt?: string;
+    }
+  >;
+};
+
+export type VerifyResult = {
+  valid: boolean;
+  error?: string;
+};
+
+/** Raw shape returned by GET /api/v1/ai/usage from Cortex. */
+type CortexUsageResponse = {
+  summary: {
+    totalRequests: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCostUsd: number;
+  };
+  data: Array<{
+    date?: string;
+    model?: string;
+    projectId?: string;
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    keySource?: string;
+  }>;
+  limits: {
+    monthlyTokenLimit?: number;
+    monthlyTokensUsed: number;
+    monthlySpendLimitUsd?: number;
+    monthlySpendUsedUsd: number;
+  };
+};
+
+/** Raw shape returned by GET /api/v1/ai/usage/logs from Cortex. */
+type CortexUsageLogsResponse = {
+  logs: Array<{
+    id: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUsd: number;
+    latencyMs?: number;
+    keySource?: string;
+    consumerId?: string;
+    createdAt: string;
+  }>;
+  hasMore: boolean;
+  nextCursor?: string;
+};
+
+/** Normalized shape that the Athena UI expects. */
+export type ApolloUsageSummary = {
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number;
+  keySourceBreakdown: Record<string, { requests: number; cost: number }>;
+  recentRequests: Array<{
+    timestamp: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cost: number;
+    keySource: string;
+    consumerId?: string;
+  }>;
+};
+
 const EXECUTE_TIMEOUT_MS = 120_000;
 
 export class CortexClient {
@@ -80,7 +174,7 @@ export class CortexClient {
       const res = await fetch(url, {
         method: opts?.method ?? "GET",
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          "X-API-Key": this.apiKey,
           "Content-Type": "application/json",
         },
         body: opts?.body ? JSON.stringify(opts.body) : undefined,
@@ -126,10 +220,118 @@ export class CortexClient {
   /** Health check — returns true if the Cortex API is reachable. */
   async healthCheck(): Promise<boolean> {
     try {
-      await this.request<{ ok: boolean }>("/api/v1/health");
+      await this.request<{ status: string }>("/health");
       return true;
     } catch {
       return false;
     }
+  }
+
+  // ── Key management (Apollo Phase 2) ─────────────────────────────────
+
+  /** List key configurations (masked values). */
+  async listKeys(): Promise<KeyConfig[]> {
+    return this.request<KeyConfig[]>("/api/v1/ai/keys");
+  }
+
+  /** Set user's own Anthropic API key. */
+  async setApiKey(key: string, label?: string): Promise<void> {
+    await this.request("/api/v1/ai/keys/api-key", {
+      method: "PUT",
+      body: { apiKey: key, label },
+    });
+  }
+
+  /** Remove user's Anthropic API key. */
+  async removeApiKey(): Promise<void> {
+    await this.request("/api/v1/ai/keys/api-key", { method: "DELETE" });
+  }
+
+  /** Verify the stored API key against Anthropic. */
+  async verifyApiKey(): Promise<VerifyResult> {
+    return this.request<VerifyResult>("/api/v1/ai/keys/api-key/verify", {
+      method: "POST",
+    });
+  }
+
+  /** Get the current active key source and details. */
+  async getKeyStatus(): Promise<KeyStatus> {
+    return this.request<KeyStatus>("/api/v1/ai/keys/status");
+  }
+
+  /** Start Anthropic OAuth flow; returns the authorization URL. */
+  async startOAuthFlow(): Promise<{ authorizeUrl: string }> {
+    return this.request<{ authorizeUrl: string }>("/api/v1/ai/keys/oauth/authorize");
+  }
+
+  /** Disconnect Anthropic OAuth token. */
+  async disconnectOAuth(): Promise<void> {
+    await this.request("/api/v1/ai/keys/oauth", { method: "DELETE" });
+  }
+
+  // ── Apollo usage (dashboard) ────────────────────────────────────────
+
+  /** Fetch Apollo usage summary for the dashboard.
+   *
+   * Combines GET /api/v1/ai/usage (summary + aggregates) and
+   * GET /api/v1/ai/usage/logs (recent individual requests) into the
+   * normalized ApolloUsageSummary shape the UI expects.
+   */
+  async getApolloUsage(params?: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<ApolloUsageSummary> {
+    const qs = new URLSearchParams();
+    if (params?.startDate) qs.set("start_date", params.startDate);
+    if (params?.endDate) qs.set("end_date", params.endDate);
+
+    const logsQs = new URLSearchParams(qs);
+    logsQs.set("limit", String(params?.limit ?? 50));
+
+    const query = qs.toString();
+    const logsQuery = logsQs.toString();
+
+    const [usageRes, logsRes] = await Promise.allSettled([
+      this.request<CortexUsageResponse>(`/api/v1/ai/usage${query ? `?${query}` : ""}`),
+      this.request<CortexUsageLogsResponse>(
+        `/api/v1/ai/usage/logs${logsQuery ? `?${logsQuery}` : ""}`,
+      ),
+    ]);
+
+    const usage = usageRes.status === "fulfilled" ? usageRes.value : null;
+    const logs = logsRes.status === "fulfilled" ? logsRes.value : null;
+
+    // Build key-source breakdown from grouped data
+    const breakdown: Record<string, { requests: number; cost: number }> = {};
+    if (usage?.data) {
+      for (const row of usage.data) {
+        const src = row.keySource ?? "org";
+        const entry = breakdown[src] ?? { requests: 0, cost: 0 };
+        entry.requests += row.requests;
+        entry.cost += row.costUsd;
+        breakdown[src] = entry;
+      }
+    }
+
+    // Map log entries to the UI's recentRequests shape
+    const recentRequests = (logs?.logs ?? []).map((log) => ({
+      timestamp: log.createdAt,
+      model: log.model,
+      inputTokens: log.inputTokens,
+      outputTokens: log.outputTokens,
+      cost: log.costUsd,
+      keySource: log.keySource ?? "org",
+      consumerId: log.consumerId,
+    }));
+
+    return {
+      totalRequests: usage?.summary.totalRequests ?? 0,
+      totalInputTokens: usage?.summary.totalInputTokens ?? 0,
+      totalOutputTokens: usage?.summary.totalOutputTokens ?? 0,
+      totalCost: usage?.summary.totalCostUsd ?? 0,
+      keySourceBreakdown: breakdown,
+      recentRequests,
+    };
   }
 }

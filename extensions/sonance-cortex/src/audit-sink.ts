@@ -19,6 +19,8 @@ type AuditEvent = {
   success: boolean;
   error?: string;
   blocked?: boolean;
+  /** Apollo key source used for the AI request (org, user_key, user_oauth). */
+  keySource?: string;
 };
 
 export type AuditSinkConfig = {

@@ -17,6 +17,7 @@ import { AuditSink } from "./src/audit-sink.js";
 import { parseCortexConfig, type McpServerEntry } from "./src/config.js";
 import { CortexClient } from "./src/cortex-client.js";
 import { StdioMcpClient } from "./src/mcp-stdio-client.js";
+import { jsonSchemaToTypeBox } from "./src/tool-adapter.js";
 
 const cortexPlugin = {
   id: "sonance-cortex",
@@ -67,10 +68,15 @@ const cortexPlugin = {
       });
 
       // Lazy import to avoid hard dependency on core internals from the plugin.
-      import("../../src/security/sonance-audit.js")
-        .then(({ setSonanceAuditSink }) => {
+      Promise.all([import("../../src/security/sonance-audit.js"), import("./src/apollo-compat.js")])
+        .then(([{ setSonanceAuditSink }, { getLastApolloKeySource }]) => {
           auditTeardown = setSonanceAuditSink((event) => {
-            auditSink?.push(event);
+            const enriched = { ...event };
+            if (!enriched.keySource) {
+              const source = getLastApolloKeySource();
+              if (source) enriched.keySource = source;
+            }
+            auditSink?.push(enriched);
           });
           api.logger.info("[sonance-cortex] audit sink registered");
         })
@@ -152,7 +158,31 @@ const cortexPlugin = {
     let apolloCompatTeardown: (() => void) | undefined;
 
     if (config.apolloBaseUrl) {
-      apolloCompatTeardown = installApolloFetchCompat(config.apolloBaseUrl, api.logger);
+      apolloCompatTeardown = installApolloFetchCompat({
+        apolloBaseUrl: config.apolloBaseUrl,
+        logger: api.logger,
+        resolveUserId: () => {
+          try {
+            // Lazy-require to avoid hard dependency
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { loadSonanceTokens } = require("../../src/gateway/sonance-token-store.js") as {
+              loadSonanceTokens: () => { idToken?: string } | null;
+            };
+            const tokens = loadSonanceTokens();
+            if (!tokens?.idToken) return undefined;
+            // Extract the `sub` claim (user UUID) from the JWT id_token
+            const payload = tokens.idToken.split(".")[1];
+            if (!payload) return undefined;
+            const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8")) as {
+              sub?: string;
+              oid?: string;
+            };
+            return decoded.sub ?? decoded.oid;
+          } catch {
+            return undefined;
+          }
+        },
+      });
     }
 
     // -----------------------------------------------------------------------
@@ -166,6 +196,7 @@ const cortexPlugin = {
           for (const tool of tools) {
             api.registerTool({
               name: tool.name,
+              label: tool.name,
               description: tool.description,
               parameters: Type.Object(
                 Object.fromEntries(
@@ -201,8 +232,17 @@ const cortexPlugin = {
     }
 
     // -----------------------------------------------------------------------
-    // 4. MCP Server Bridge — register tools from external MCP servers
-    //    Supports both HTTP and stdio transports.
+    // 4a. CompositeMCPBridge — single JSON-RPC endpoint aggregating all
+    //     Cortex-managed MCPs (GitHub, Supabase, Vercel, etc.)
+    // -----------------------------------------------------------------------
+
+    if (config.mcpBridgeUrl) {
+      bridgeCortexMcp(api, config.mcpBridgeUrl, config.apiKey);
+    }
+
+    // -----------------------------------------------------------------------
+    // 4b. MCP Server Bridge — register tools from external MCP servers
+    //     Supports both HTTP and stdio transports.
     // -----------------------------------------------------------------------
 
     const stdioClients: StdioMcpClient[] = [];
@@ -256,9 +296,115 @@ const cortexPlugin = {
         respond(false, { error: "sessionKey is required" });
         return;
       }
-      // Future: integrate with session manager to terminate the session.
       api.logger.warn(`[sonance-cortex] kill_session requested for ${sessionKey}`);
       respond(true, { killed: sessionKey });
+    });
+
+    // -----------------------------------------------------------------------
+    // 6. Key Management Gateway Methods (Apollo Phase 2 multi-auth)
+    // -----------------------------------------------------------------------
+
+    api.registerGatewayMethod("sonance.keys.list", async ({ respond }) => {
+      try {
+        const keys = await client.listKeys();
+        respond(true, keys);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.keys.set_api_key", async ({ params, respond }) => {
+      const key = typeof params?.key === "string" ? params.key.trim() : "";
+      const label = typeof params?.label === "string" ? params.label.trim() : undefined;
+      if (!key) {
+        respond(false, { error: "key is required" });
+        return;
+      }
+      try {
+        await client.setApiKey(key, label);
+        respond(true, { ok: true });
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.keys.remove_api_key", async ({ respond }) => {
+      try {
+        await client.removeApiKey();
+        respond(true, { ok: true });
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.keys.verify", async ({ respond }) => {
+      try {
+        const result = await client.verifyApiKey();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.keys.status", async ({ respond }) => {
+      try {
+        const status = await client.getKeyStatus();
+        respond(true, status);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.keys.oauth_start", async ({ respond }) => {
+      try {
+        const result = await client.startOAuthFlow();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.keys.oauth_disconnect", async ({ respond }) => {
+      try {
+        await client.disconnectOAuth();
+        respond(true, { ok: true });
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // 7. Apollo Usage Gateway Method (dashboard)
+    // -----------------------------------------------------------------------
+
+    api.registerGatewayMethod("sonance.apollo.status", async ({ respond }) => {
+      try {
+        const [healthy, keyStatus] = await Promise.allSettled([
+          client.healthCheck(),
+          client.getKeyStatus(),
+        ]);
+        respond(true, {
+          apolloHealthy: healthy.status === "fulfilled" ? healthy.value : false,
+          apolloBaseUrl: config.apolloBaseUrl || null,
+          keyStatus: keyStatus.status === "fulfilled" ? keyStatus.value : null,
+          keyStatusError: keyStatus.status === "rejected" ? String(keyStatus.reason) : undefined,
+        });
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.apollo.usage", async ({ params, respond }) => {
+      try {
+        const usage = await client.getApolloUsage({
+          startDate: typeof params?.startDate === "string" ? params.startDate : undefined,
+          endDate: typeof params?.endDate === "string" ? params.endDate : undefined,
+          limit: typeof params?.limit === "number" ? params.limit : undefined,
+        });
+        respond(true, usage);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
     });
   },
 };
@@ -305,6 +451,7 @@ function registerMcpTools(
 
     api.registerTool({
       name: toolName,
+      label: toolName,
       description: "[" + mcpName + "] " + (tool.description ?? tool.name),
       parameters: Type.Object(
         Object.fromEntries(
@@ -383,6 +530,81 @@ function bridgeStdioMcp(
       api.logger.warn(
         "[sonance-cortex] failed to start stdio MCP '" + mcp.name + "': " + String(err),
       );
+    });
+}
+
+/**
+ * Bridge the Cortex CompositeMCPBridge — a single JSON-RPC 2.0 endpoint that
+ * aggregates all registered MCPs (GitHub, Supabase, Vercel, etc.) with
+ * namespace-prefixed tool names (e.g. `github__list_repositories`).
+ *
+ * Unlike `bridgeHttpMcp` which uses separate URLs for tools/list and tools/call,
+ * this sends all JSON-RPC calls to the same URL.
+ */
+function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: string): void {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+
+  const rpc = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+    const res = await fetch(bridgeUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`Cortex MCP bridge ${method} failed: ${res.status} ${errText}`);
+    }
+    const body = (await res.json()) as {
+      result?: unknown;
+      error?: { code?: number; message?: string };
+    };
+    if (body.error) {
+      throw new Error(body.error.message ?? `Cortex MCP bridge error (${method})`);
+    }
+    return body.result;
+  };
+
+  rpc("tools/list")
+    .then((result) => {
+      const tools = ((result as { tools?: unknown[] })?.tools ?? []) as Array<{
+        name: string;
+        description?: string;
+        inputSchema?: Record<string, unknown>;
+      }>;
+
+      for (const tool of tools) {
+        const schema = tool.inputSchema
+          ? jsonSchemaToTypeBox(tool.inputSchema as Parameters<typeof jsonSchemaToTypeBox>[0])
+          : Type.Object({});
+
+        api.registerTool({
+          name: tool.name,
+          label: tool.name,
+          description: `[cortex-mcp] ${tool.description ?? tool.name}`,
+          parameters: schema,
+          async execute(_toolCallId, params) {
+            const callResult = await rpc("tools/call", {
+              name: tool.name,
+              arguments: params as Record<string, unknown>,
+            });
+            const content = (callResult as { content?: Array<{ type: string; text?: string }> })
+              ?.content;
+            const text = content
+              ?.filter((c) => c.type === "text")
+              .map((c) => c.text ?? "")
+              .join("\n");
+            return wrapTextResult(text || JSON.stringify(callResult ?? {}));
+          },
+        });
+        api.logger.info(`[sonance-cortex] registered bridge tool: ${tool.name}`);
+      }
+      api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from CompositeMCPBridge`);
+    })
+    .catch((err) => {
+      api.logger.warn(`[sonance-cortex] CompositeMCPBridge discovery failed: ${String(err)}`);
     });
 }
 

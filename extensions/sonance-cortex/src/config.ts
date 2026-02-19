@@ -35,6 +35,13 @@ export type SonanceCortexConfig = {
    * Example: "http://localhost:8000" (local Cortex with SDK-compat routes).
    */
   apolloBaseUrl: string;
+  /**
+   * CompositeMCPBridge URL. When set, the plugin discovers and registers all
+   * Cortex-aggregated MCP tools via a single JSON-RPC 2.0 endpoint.
+   *
+   * Example: "http://localhost:8000/mcp/cortex"
+   */
+  mcpBridgeUrl: string;
   audit: {
     enabled: boolean;
     batchSize: number;
@@ -104,6 +111,10 @@ export function parseCortexConfig(raw: unknown): SonanceCortexConfig {
       typeof obj.apolloBaseUrl === "string" && obj.apolloBaseUrl.trim()
         ? obj.apolloBaseUrl.trim()
         : (process.env.SONANCE_APOLLO_BASE_URL ?? ""),
+    mcpBridgeUrl:
+      typeof obj.mcpBridgeUrl === "string" && obj.mcpBridgeUrl.trim()
+        ? obj.mcpBridgeUrl.trim()
+        : (process.env.SONANCE_MCP_BRIDGE_URL ?? ""),
     audit: {
       enabled: typeof audit.enabled === "boolean" ? audit.enabled : true,
       batchSize: typeof audit.batchSize === "number" ? audit.batchSize : 50,

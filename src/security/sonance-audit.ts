@@ -35,6 +35,8 @@ export type SonanceAuditEvent = {
   error?: string;
   /** Whether the call was blocked before execution (policy / hook). */
   blocked?: boolean;
+  /** Apollo key source used for the AI request (org, user_key, user_oauth). */
+  keySource?: string;
 };
 
 /**

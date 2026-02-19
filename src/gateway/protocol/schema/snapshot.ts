@@ -58,6 +58,7 @@ export const SnapshotSchema = Type.Object(
         Type.Literal("token"),
         Type.Literal("password"),
         Type.Literal("trusted-proxy"),
+        Type.Literal("sonance-sso"),
       ]),
     ),
   },

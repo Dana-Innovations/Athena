@@ -98,7 +98,18 @@ export function resolveModel(
       modelRegistry,
     };
   }
-  return { model: normalizeModelCompat(model), authStorage, modelRegistry };
+  const normalized = normalizeModelCompat(model);
+  // Apply provider-level baseUrl override (e.g., Apollo proxy).
+  // Built-in models ship with the provider's default baseUrl (e.g.,
+  // "https://api.anthropic.com"). When the user configures a custom
+  // baseUrl on the provider (models.providers.anthropic.baseUrl →
+  // "http://localhost:8000"), it must override the model's default.
+  const providers = cfg?.models?.providers ?? {};
+  const providerCfgOverride = providers[provider];
+  if (providerCfgOverride?.baseUrl) {
+    normalized.baseUrl = providerCfgOverride.baseUrl;
+  }
+  return { model: normalized, authStorage, modelRegistry };
 }
 
 /**
