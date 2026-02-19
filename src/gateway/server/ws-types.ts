@@ -10,4 +10,6 @@ export type GatewayWsClient = {
   clientIp?: string;
   /** Sonance SSO identity (present when auth method is "sonance-sso"). */
   sonanceUser?: SonanceUserIdentity;
+  canvasCapability?: string;
+  canvasCapabilityExpiresAtMs?: number;
 };

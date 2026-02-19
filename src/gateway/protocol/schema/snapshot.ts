@@ -61,6 +61,13 @@ export const SnapshotSchema = Type.Object(
         Type.Literal("sonance-sso"),
       ]),
     ),
+    updateAvailable: Type.Optional(
+      Type.Object({
+        currentVersion: NonEmptyString,
+        latestVersion: NonEmptyString,
+        channel: NonEmptyString,
+      }),
+    ),
   },
   { additionalProperties: false },
 );

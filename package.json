@@ -1,19 +1,26 @@
 {
   "name": "openclaw",
   "version": "2026.2.18",
-  "description": "Multi-channel AI gateway with extensible messaging integrations",
-  "keywords": [],
-  "homepage": "https://github.com/openclaw/openclaw#readme",
+  "description": "Athena — Multi-channel AI agent gateway powered by Cortex",
+  "keywords": [
+    "agent",
+    "ai",
+    "athena",
+    "cortex",
+    "gateway"
+  ],
+  "homepage": "https://github.com/Dana-Innovations/Athena#readme",
   "bugs": {
-    "url": "https://github.com/openclaw/openclaw/issues"
+    "url": "https://github.com/Dana-Innovations/Athena/issues"
   },
   "license": "MIT",
-  "author": "",
+  "author": "Dana Innovations",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openclaw/openclaw.git"
+    "url": "git+https://github.com/Dana-Innovations/Athena.git"
   },
   "bin": {
+    "athena": "athena.mjs",
     "openclaw": "openclaw.mjs"
   },
   "directories": {
@@ -23,6 +30,7 @@
   "files": [
     "CHANGELOG.md",
     "LICENSE",
+    "athena.mjs",
     "openclaw.mjs",
     "README-header.png",
     "README.md",
@@ -44,7 +52,7 @@
       "types": "./dist/plugin-sdk/account-id.d.ts",
       "default": "./dist/plugin-sdk/account-id.js"
     },
-    "./cli-entry": "./openclaw.mjs"
+    "./cli-entry": "./athena.mjs"
   },
   "scripts": {
     "android:assemble": "cd apps/android && ./gradlew :app:assembleDebug",
@@ -65,8 +73,10 @@
     "format": "oxfmt --write",
     "format:all": "pnpm format && pnpm format:swift",
     "format:check": "oxfmt --check",
+    "format:diff": "oxfmt --write && git --no-pager diff",
     "format:docs": "git ls-files 'docs/**/*.md' 'docs/**/*.mdx' 'README.md' | xargs oxfmt --write",
     "format:docs:check": "git ls-files 'docs/**/*.md' 'docs/**/*.mdx' 'README.md' | xargs oxfmt --check",
+    "format:fix": "oxfmt --write",
     "format:swift": "swiftformat --lint --config .swiftformat apps/macos/Sources apps/ios/Sources apps/shared/OpenClawKit/Sources",
     "gateway:dev": "OPENCLAW_SKIP_CHANNELS=1 CLAWDBOT_SKIP_CHANNELS=1 node scripts/run-node.mjs --dev gateway",
     "gateway:dev:reset": "OPENCLAW_SKIP_CHANNELS=1 CLAWDBOT_SKIP_CHANNELS=1 node scripts/run-node.mjs --dev gateway --reset",
@@ -127,7 +137,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.14.1",
-    "@aws-sdk/client-bedrock": "^3.992.0",
+    "@aws-sdk/client-bedrock": "^3.993.0",
     "@buape/carbon": "0.14.0",
     "@clack/prompts": "^1.0.1",
     "@grammyjs/runner": "^2.0.3",
@@ -185,18 +195,18 @@
     "@lit/context": "^1.1.6",
     "@types/express": "^5.0.6",
     "@types/markdown-it": "^14.1.2",
-    "@types/node": "^25.2.3",
+    "@types/node": "^25.3.0",
     "@types/proper-lockfile": "^4.1.4",
     "@types/qrcode-terminal": "^0.12.2",
     "@types/ws": "^8.18.1",
-    "@typescript/native-preview": "7.0.0-dev.20260217.1",
+    "@typescript/native-preview": "7.0.0-dev.20260219.1",
     "@vitest/coverage-v8": "^4.0.18",
     "lit": "^3.3.2",
     "ollama": "^0.6.3",
     "oxfmt": "0.33.0",
     "oxlint": "^1.48.0",
-    "oxlint-tsgolint": "^0.14.0",
-    "rolldown": "1.0.0-rc.4",
+    "oxlint-tsgolint": "^0.14.1",
+    "rolldown": "1.0.0-rc.5",
     "tsdown": "^0.20.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
@@ -213,8 +223,11 @@
   "pnpm": {
     "minimumReleaseAge": 2880,
     "overrides": {
-      "fast-xml-parser": "5.3.4",
+      "fast-xml-parser": "5.3.6",
+      "request": "npm:@cypress/request@3.0.10",
+      "request-promise": "npm:@cypress/request-promise@5.0.0",
       "form-data": "2.5.4",
+      "minimatch": "10.2.1",
       "qs": "6.14.2",
       "@sinclair/typebox": "0.34.48",
       "tar": "7.5.9",

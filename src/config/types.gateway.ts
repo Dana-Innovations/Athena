@@ -104,7 +104,7 @@ export type GatewayTrustedProxyConfig = {
 };
 
 export type GatewayAuthConfig = {
-  /** Authentication mode for Gateway connections. Defaults to token when set. */
+  /** Authentication mode for Gateway connections. Defaults to token when unset. */
   mode?: GatewayAuthMode;
   /** Shared token for token mode (stored locally for CLI auth). */
   token?: string;
