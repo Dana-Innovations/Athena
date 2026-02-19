@@ -546,7 +546,7 @@ function bridgeStdioMcp(
 function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: string): void {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
+    "X-API-Key": apiKey,
   };
 
   const rpc = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
