@@ -187,6 +187,7 @@ function renderRecentRequests(usage: ApolloUsageResult | null) {
               <th style="text-align: right;">Output</th>
               <th style="text-align: right;">Cost</th>
               <th>Key Source</th>
+              <th>User</th>
               <th>Consumer</th>
             </tr>
           </thead>
@@ -200,6 +201,7 @@ function renderRecentRequests(usage: ApolloUsageResult | null) {
                   <td style="text-align: right;" class="mono">${req.outputTokens.toLocaleString()}</td>
                   <td style="text-align: right;" class="mono">${fmtCost(req.cost)}</td>
                   <td><span class="pill pill--sm">${sourceLabel[req.keySource] ?? req.keySource}</span></td>
+                  <td class="mono" style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${req.userEmail ?? ""}">${req.userDisplayName ?? req.userEmail ?? "-"}</td>
                   <td class="mono">${req.consumerId ?? "-"}</td>
                 </tr>
               `,

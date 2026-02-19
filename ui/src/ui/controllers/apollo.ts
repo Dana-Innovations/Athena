@@ -48,6 +48,8 @@ export type ApolloUsageResult = {
     cost: number;
     keySource: string;
     consumerId?: string;
+    userEmail?: string;
+    userDisplayName?: string;
   }>;
 };
 

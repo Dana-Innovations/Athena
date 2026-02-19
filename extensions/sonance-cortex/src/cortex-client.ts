@@ -125,6 +125,8 @@ type CortexUsageLogsResponse = {
     latencyMs?: number;
     keySource?: string;
     consumerId?: string;
+    userEmail?: string;
+    userDisplayName?: string;
     createdAt: string;
   }>;
   hasMore: boolean;
@@ -146,6 +148,8 @@ export type ApolloUsageSummary = {
     cost: number;
     keySource: string;
     consumerId?: string;
+    userEmail?: string;
+    userDisplayName?: string;
   }>;
 };
 
@@ -192,7 +196,7 @@ export class CortexClient {
 
   /** Discover available tools for the current gateway/tenant. */
   async listTools(): Promise<CortexTool[]> {
-    return this.request<CortexTool[]>("/api/v1/tools");
+    return this.request<CortexTool[]>("/api/v1/tools/schemas");
   }
 
   /**
@@ -323,6 +327,8 @@ export class CortexClient {
       cost: log.costUsd,
       keySource: log.keySource ?? "org",
       consumerId: log.consumerId,
+      userEmail: log.userEmail,
+      userDisplayName: log.userDisplayName,
     }));
 
     return {
