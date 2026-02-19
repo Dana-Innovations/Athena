@@ -752,8 +752,25 @@ function syncMcpAgent(
 
     const toolNames = tools.map((t) => "cortex_" + mcpName + "__" + t.name);
 
+    // Check if agent already exists with the same tool set — skip the config
+    // write to avoid triggering the config-watcher restart loop.
     const existing = agentList.find((a) => a.id === agentId);
     if (existing) {
+      const existingAllow = (existing.tools as Record<string, unknown> | undefined)?.allow;
+      if (
+        Array.isArray(existingAllow) &&
+        existingAllow.length === toolNames.length &&
+        existingAllow.every((n, i) => n === toolNames[i])
+      ) {
+        logger.info(
+          "[sonance-cortex] agent sync: '" +
+            agentId +
+            "' already up to date (" +
+            toolNames.length +
+            " tools)",
+        );
+        return;
+      }
       if (!existing.tools || typeof existing.tools !== "object") {
         existing.tools = {};
       }
