@@ -38,6 +38,7 @@ import { applyMergePatch } from "./merge-patch.js";
 import { normalizeConfigPaths } from "./normalize-paths.js";
 import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } from "./paths.js";
 import { applyConfigOverrides } from "./runtime-overrides.js";
+import { applySonanceDefaults } from "./sonance-defaults.js";
 import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
 import {
   validateConfigObjectRawWithPlugins,
@@ -1098,7 +1099,8 @@ export function loadConfig(): OpenClawConfig {
       return cached.config;
     }
   }
-  const config = io.loadConfig();
+  const rawConfig = io.loadConfig();
+  const config = applySonanceDefaults(rawConfig);
   if (shouldUseConfigCache(process.env)) {
     const cacheMs = resolveConfigCacheMs(process.env);
     if (cacheMs > 0) {

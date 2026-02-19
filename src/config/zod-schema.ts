@@ -410,7 +410,13 @@ export const OpenClawSchema = z
         auth: z
           .object({
             mode: z
-              .union([z.literal("token"), z.literal("password"), z.literal("trusted-proxy")])
+              .union([
+                z.literal("none"),
+                z.literal("token"),
+                z.literal("password"),
+                z.literal("trusted-proxy"),
+                z.literal("sonance-sso"),
+              ])
               .optional(),
             token: z.string().optional().register(sensitive),
             password: z.string().optional().register(sensitive),
@@ -429,6 +435,22 @@ export const OpenClawSchema = z
                 userHeader: z.string().min(1, "userHeader is required for trusted-proxy mode"),
                 requiredHeaders: z.array(z.string()).optional(),
                 allowUsers: z.array(z.string()).optional(),
+              })
+              .strict()
+              .optional(),
+            sonanceSso: z
+              .object({
+                tokenHeader: z.string().optional(),
+                jwksUri: z.string().optional(),
+                jwtSecret: z.string().optional().register(sensitive),
+                issuer: z.string().optional(),
+                audience: z.string().optional(),
+                userIdClaim: z.string().optional(),
+                emailClaim: z.string().optional(),
+                roleClaim: z.string().optional(),
+                entraIdTenantId: z.string().optional(),
+                entraIdClientId: z.string().optional(),
+                oauthScopes: z.array(z.string()).optional(),
               })
               .strict()
               .optional(),

@@ -49,6 +49,24 @@ const select = <T>(params: Parameters<typeof clackSelect<T>>[0]) =>
     ),
   });
 
+/**
+ * Sonance fork: self-service model auth is disabled.
+ * API keys are managed centrally by Cortex. Users authenticate via Sonance SSO
+ * and the gateway resolves model credentials from the central key resolver.
+ *
+ * Set SONANCE_ALLOW_SELF_SERVICE_AUTH=1 to re-enable (dev/testing only).
+ */
+function assertSelfServiceAuthAllowed(): void {
+  if (process.env.SONANCE_ALLOW_SELF_SERVICE_AUTH === "1") {
+    return;
+  }
+  throw new Error(
+    "Self-service model authentication is disabled in the Sonance environment. " +
+      "API keys are managed centrally by Cortex. Contact your administrator if " +
+      "you need access to a new model provider.",
+  );
+}
+
 type TokenProvider = "anthropic";
 
 function resolveTokenProvider(raw?: string): TokenProvider | "custom" | null {
@@ -71,6 +89,7 @@ export async function modelsAuthSetupTokenCommand(
   opts: { provider?: string; yes?: boolean },
   runtime: RuntimeEnv,
 ) {
+  assertSelfServiceAuthAllowed();
   const provider = resolveTokenProvider(opts.provider ?? "anthropic");
   if (provider !== "anthropic") {
     throw new Error("Only --provider anthropic is supported for setup-token.");
@@ -126,6 +145,7 @@ export async function modelsAuthPasteTokenCommand(
   },
   runtime: RuntimeEnv,
 ) {
+  assertSelfServiceAuthAllowed();
   const rawProvider = opts.provider?.trim();
   if (!rawProvider) {
     throw new Error("Missing --provider.");
@@ -161,6 +181,7 @@ export async function modelsAuthPasteTokenCommand(
 }
 
 export async function modelsAuthAddCommand(_opts: Record<string, never>, runtime: RuntimeEnv) {
+  assertSelfServiceAuthAllowed();
   const provider = (await select({
     message: "Token provider",
     options: [
@@ -274,6 +295,7 @@ function credentialMode(credential: AuthProfileCredential): "api_key" | "oauth" 
 }
 
 export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: RuntimeEnv) {
+  assertSelfServiceAuthAllowed();
   if (!process.stdin.isTTY) {
     throw new Error("models auth login requires an interactive TTY.");
   }

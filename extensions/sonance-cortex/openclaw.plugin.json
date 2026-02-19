@@ -1,0 +1,61 @@
+{
+  "id": "sonance-cortex",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable the Sonance Cortex integration."
+      },
+      "apiBaseUrl": {
+        "type": "string",
+        "description": "Cortex API base URL.",
+        "pattern": "^https?://"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Cortex API key for service-to-service auth."
+      },
+      "audit": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Push tool-call audit events to Cortex."
+          },
+          "batchSize": {
+            "type": "number",
+            "description": "Number of events to batch before flushing."
+          },
+          "flushIntervalMs": {
+            "type": "number",
+            "description": "Maximum time (ms) between audit flushes."
+          }
+        }
+      },
+      "centralKeys": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Resolve model API keys from Cortex instead of local auth profiles."
+          }
+        }
+      },
+      "tools": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Register Cortex-managed tools (MCPs, agents, monitors)."
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "apiKey": {
+      "sensitive": true
+    }
+  }
+}

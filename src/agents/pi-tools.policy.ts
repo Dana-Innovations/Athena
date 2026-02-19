@@ -8,7 +8,16 @@ import { compileGlobPatterns, matchesAnyGlobPattern } from "./glob-pattern.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
 import { pickSandboxToolPolicy } from "./sandbox-tool-policy.js";
 import type { SandboxToolPolicy } from "./sandbox.js";
+import type { ToolProfileId } from "./tool-policy.js";
 import { expandToolGroups, normalizeToolName } from "./tool-policy.js";
+
+/**
+ * Sonance fork: default tool profile when no profile is explicitly configured.
+ * All tools are denied unless they appear in the profile's allowlist or are
+ * added via `tools.alsoAllow`.  Change this to "full" to restore upstream
+ * OpenClaw behavior.
+ */
+const SONANCE_DEFAULT_TOOL_PROFILE: ToolProfileId = "sonance";
 
 function makeToolPolicyMatcher(policy: SandboxToolPolicy) {
   const deny = compileGlobPatterns({
@@ -197,7 +206,7 @@ export function resolveEffectiveToolPolicy(params: {
   const agentTools = agentConfig?.tools;
   const globalTools = params.config?.tools;
 
-  const profile = agentTools?.profile ?? globalTools?.profile;
+  const profile = agentTools?.profile ?? globalTools?.profile ?? SONANCE_DEFAULT_TOOL_PROFILE;
   const providerPolicy = resolveProviderToolPolicy({
     byProvider: globalTools?.byProvider,
     modelProvider: params.modelProvider,

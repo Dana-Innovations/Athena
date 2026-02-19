@@ -388,6 +388,7 @@ describe("POST /tools/invoke", () => {
   it("allows gateway tool via HTTP when explicitly enabled in gateway.tools.allow", async () => {
     cfg = {
       ...cfg,
+      tools: { profile: "full" },
       agents: {
         list: [{ id: "main", default: true, tools: { allow: ["gateway"] } }],
       },
@@ -456,6 +457,7 @@ describe("POST /tools/invoke", () => {
   it("maps tool input errors to 400 and unexpected execution errors to 500", async () => {
     cfg = {
       ...cfg,
+      tools: { profile: "full" },
       agents: {
         list: [{ id: "main", default: true, tools: { allow: ["tools_invoke_test"] } }],
       },

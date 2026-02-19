@@ -76,7 +76,7 @@ export type GatewayControlUiConfig = {
   dangerouslyDisableDeviceAuth?: boolean;
 };
 
-export type GatewayAuthMode = "token" | "password" | "trusted-proxy";
+export type GatewayAuthMode = "none" | "token" | "password" | "trusted-proxy" | "sonance-sso";
 
 /**
  * Configuration for trusted reverse proxy authentication.
@@ -119,6 +119,61 @@ export type GatewayAuthConfig = {
    * Required when mode is "trusted-proxy".
    */
   trustedProxy?: GatewayTrustedProxyConfig;
+  /**
+   * Sonance SSO configuration.
+   * Required when mode is "sonance-sso". The reverse proxy handles SSO and
+   * forwards a signed JWT in the configured header. The gateway validates the
+   * JWT and extracts user identity claims.
+   */
+  sonanceSso?: SonanceSsoConfig;
+};
+
+export type SonanceSsoConfig = {
+  /**
+   * HTTP header containing the Sonance JWT (set by the reverse proxy).
+   * @default "x-sonance-token"
+   */
+  tokenHeader?: string;
+  /**
+   * JWKS URI for JWT signature verification.
+   * Example: "https://auth.sonance.ai/.well-known/jwks.json"
+   *
+   * For Microsoft Entra ID, use:
+   * "https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys"
+   */
+  jwksUri?: string;
+  /**
+   * Shared symmetric secret for HS256 JWT verification (alternative to JWKS).
+   * Prefer JWKS in production; this is useful for development/testing.
+   */
+  jwtSecret?: string;
+  /** Expected JWT `iss` (issuer) claim. Rejected if present and mismatched. */
+  issuer?: string;
+  /** Expected JWT `aud` (audience) claim. Rejected if present and mismatched. */
+  audience?: string;
+  /** JWT claim path for the user id (default: "sub"). */
+  userIdClaim?: string;
+  /** JWT claim path for the user email (default: "email"). */
+  emailClaim?: string;
+  /** JWT claim path for the user role (default: "role"). */
+  roleClaim?: string;
+  /**
+   * Microsoft Entra ID (Azure AD) tenant ID.
+   * When set, auto-populates jwksUri and issuer from the tenant.
+   * Overridden by explicit jwksUri/issuer if both are set.
+   */
+  entraIdTenantId?: string;
+  /**
+   * Entra ID app (client) registration ID.
+   * Required for the OAuth PKCE login flow (used during onboarding).
+   */
+  entraIdClientId?: string;
+  /**
+   * Extra OAuth scopes to request (in addition to openid, profile, email,
+   * offline_access).  Add Microsoft Graph scopes here for M365 data access,
+   * e.g. ["Calendars.Read", "Mail.Read", "Files.Read"].
+   */
+  oauthScopes?: string[];
 };
 
 export type GatewayAuthRateLimitConfig = {

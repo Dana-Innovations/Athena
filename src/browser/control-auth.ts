@@ -53,12 +53,14 @@ export async function ensureBrowserControlAuth(params: {
     return { auth };
   }
 
-  // Respect explicit password mode even if currently unset.
-  if (params.cfg.gateway?.auth?.mode === "password") {
-    return { auth };
-  }
-
-  if (params.cfg.gateway?.auth?.mode === "trusted-proxy") {
+  // Respect explicit auth modes that don't use auto-generated tokens.
+  const authMode = params.cfg.gateway?.auth?.mode;
+  if (
+    authMode === "password" ||
+    authMode === "trusted-proxy" ||
+    authMode === "none" ||
+    authMode === "sonance-sso"
+  ) {
     return { auth };
   }
 

@@ -132,6 +132,43 @@ export type ResolvedProviderAuth = {
   mode: "api-key" | "oauth" | "token" | "aws-sdk";
 };
 
+/**
+ * Sonance: external key resolver hook.
+ *
+ * When set (by the Cortex plugin), this function is called first in
+ * `resolveApiKeyForProvider`. If it returns a result, per-user auth
+ * profile resolution is skipped entirely.
+ *
+ * In Apollo proxy mode, this returns the Cortex API key (ctx_...) — not
+ * the Anthropic key. OpenClaw sends it as x-api-key to Apollo, which
+ * validates the credential and proxies to Anthropic server-side.
+ *
+ * In direct fallback mode (no Apollo), this returns a raw provider key
+ * from environment variables.
+ */
+export type SonanceCentralKeyResolver = (provider: string) => Promise<ResolvedProviderAuth | null>;
+
+// Use a process-global symbol so the resolver is shared across bundled module
+// instances (the plugin loads from source via jiti while the gateway runs from
+// the bundled dist/ — they get different module-level scopes but share globalThis).
+const RESOLVER_SYM = Symbol.for("sonance.centralKeyResolver");
+
+function getSonanceCentralKeyResolver(): SonanceCentralKeyResolver | undefined {
+  return (globalThis as Record<symbol, SonanceCentralKeyResolver | undefined>)[RESOLVER_SYM];
+}
+
+/**
+ * Register a central key resolver (called by the Cortex plugin at startup).
+ * Returns a teardown function.
+ */
+export function setSonanceCentralKeyResolver(resolver: SonanceCentralKeyResolver): () => void {
+  const previous = getSonanceCentralKeyResolver();
+  (globalThis as Record<symbol, SonanceCentralKeyResolver | undefined>)[RESOLVER_SYM] = resolver;
+  return () => {
+    (globalThis as Record<symbol, SonanceCentralKeyResolver | undefined>)[RESOLVER_SYM] = previous;
+  };
+}
+
 export async function resolveApiKeyForProvider(params: {
   provider: string;
   cfg?: OpenClawConfig;
@@ -141,6 +178,16 @@ export async function resolveApiKeyForProvider(params: {
   agentDir?: string;
 }): Promise<ResolvedProviderAuth> {
   const { provider, cfg, profileId, preferredProfile } = params;
+
+  // Sonance: try centralized key resolver first (Cortex-managed keys).
+  const centralResolver = getSonanceCentralKeyResolver();
+  if (centralResolver) {
+    const centralized = await centralResolver(provider);
+    if (centralized) {
+      return centralized;
+    }
+  }
+
   const store = params.store ?? ensureAuthProfileStore(params.agentDir);
 
   if (profileId) {

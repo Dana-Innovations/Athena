@@ -14,6 +14,7 @@ import {
   type SessionsPatchResult,
   type SessionsPatchParams,
 } from "../gateway/protocol/index.js";
+import { loadSonanceIdToken } from "../gateway/sonance-token-store.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { VERSION } from "../version.js";
 
@@ -119,6 +120,7 @@ export class GatewayChatClient {
       url: resolved.url,
       token: resolved.token,
       password: resolved.password,
+      wsHeaders: resolved.wsHeaders,
       clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
       clientDisplayName: "openclaw-tui",
       clientVersion: VERSION,
@@ -266,5 +268,20 @@ export function resolveGatewayConnection(opts: GatewayConnectionOptions) {
           : undefined)
       : undefined);
 
-  return { url, token, password };
+  // Auto-inject Sonance SSO token if configured
+  const wsHeaders: Record<string, string> = {};
+  if (config.gateway?.auth?.mode === "sonance-sso") {
+    const sonanceToken = loadSonanceIdToken();
+    if (sonanceToken) {
+      const header = config.gateway.auth.sonanceSso?.tokenHeader ?? "x-sonance-token";
+      wsHeaders[header] = sonanceToken;
+    }
+  }
+
+  return {
+    url,
+    token,
+    password,
+    wsHeaders: Object.keys(wsHeaders).length > 0 ? wsHeaders : undefined,
+  };
 }

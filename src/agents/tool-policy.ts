@@ -1,6 +1,6 @@
 import type { AnyAgentTool } from "./tools/common.js";
 
-export type ToolProfileId = "minimal" | "coding" | "messaging" | "full";
+export type ToolProfileId = "minimal" | "coding" | "messaging" | "full" | "sonance";
 
 type ToolProfilePolicy = {
   allow?: string[];
@@ -58,6 +58,17 @@ export const TOOL_GROUPS: Record<string, string[]> = {
     "web_fetch",
     "image",
   ],
+  // Sonance: read-only baseline tools evaluated as low-risk.
+  // Add tools here as they pass security review.
+  "group:sonance": [
+    "read",
+    "agents_list",
+    "sessions_list",
+    "sessions_history",
+    "session_status",
+    "image",
+    "tts",
+  ],
 };
 
 const OWNER_ONLY_TOOL_NAMES = new Set<string>(["whatsapp_login"]);
@@ -79,6 +90,25 @@ const TOOL_PROFILES: Record<ToolProfileId, ToolProfilePolicy> = {
     ],
   },
   full: {},
+  // Sonance: allowlist-only profile. Only tools in group:sonance (or explicitly
+  // added via tools.alsoAllow / agent-level overrides) are available.
+  // Deny all high-risk tools as a hard safety net — deny always wins.
+  sonance: {
+    allow: ["group:sonance"],
+    deny: [
+      "group:runtime",
+      "write",
+      "edit",
+      "apply_patch",
+      "gateway",
+      "nodes",
+      "sessions_spawn",
+      "sessions_send",
+      "whatsapp_login",
+      "cron",
+      "browser",
+    ],
+  },
 };
 
 export function normalizeToolName(name: string) {

@@ -18,6 +18,7 @@ import {
 import { GatewayClient } from "./client.js";
 import { pickPrimaryLanIPv4 } from "./net.js";
 import { PROTOCOL_VERSION } from "./protocol/index.js";
+import { loadSonanceIdToken } from "./sonance-token-store.js";
 
 export type CallGatewayOptions = {
   url?: string;
@@ -257,11 +258,23 @@ export async function callGateway<T = Record<string, unknown>>(
       }
     };
 
+    // Auto-inject Sonance SSO id_token as the x-sonance-token header
+    // when sonance-sso is configured and a stored session exists.
+    const wsHeaders: Record<string, string> = {};
+    if (config.gateway?.auth?.mode === "sonance-sso") {
+      const sonanceToken = loadSonanceIdToken();
+      if (sonanceToken) {
+        const header = config.gateway.auth.sonanceSso?.tokenHeader ?? "x-sonance-token";
+        wsHeaders[header] = sonanceToken;
+      }
+    }
+
     const client = new GatewayClient({
       url,
       token,
       password,
       tlsFingerprint,
+      wsHeaders: Object.keys(wsHeaders).length > 0 ? wsHeaders : undefined,
       instanceId: opts.instanceId ?? randomUUID(),
       clientName: opts.clientName ?? GATEWAY_CLIENT_NAMES.CLI,
       clientDisplayName: opts.clientDisplayName,

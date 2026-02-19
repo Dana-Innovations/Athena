@@ -50,10 +50,19 @@ export function formatGatewayAuthFailureMessage(params: {
       return "unauthorized: too many failed authentication attempts (retry later)";
     case "device_token_mismatch":
       return "unauthorized: device token mismatch (rotate/reissue device token)";
+    case "sonance_sso_config_missing":
+      return "unauthorized: Sonance SSO not configured (set gateway.auth.sonanceSso)";
     default:
       break;
   }
 
+  if (reason?.startsWith("sonance-sso:") || reason?.startsWith("JWT ")) {
+    return `unauthorized: ${reason}`;
+  }
+
+  if (authMode === "sonance-sso" && authProvided === "none") {
+    return "unauthorized: Sonance SSO token missing (ensure reverse proxy forwards the token header)";
+  }
   if (authMode === "token" && authProvided === "none") {
     return `unauthorized: gateway token missing (${tokenHint})`;
   }

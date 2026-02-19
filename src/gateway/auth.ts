@@ -19,7 +19,12 @@ import {
   resolveGatewayClientIp,
 } from "./net.js";
 
-export type ResolvedGatewayAuthMode = "none" | "token" | "password" | "trusted-proxy";
+export type ResolvedGatewayAuthMode =
+  | "none"
+  | "token"
+  | "password"
+  | "trusted-proxy"
+  | "sonance-sso";
 
 export type ResolvedGatewayAuth = {
   mode: ResolvedGatewayAuthMode;
@@ -27,17 +32,28 @@ export type ResolvedGatewayAuth = {
   password?: string;
   allowTailscale: boolean;
   trustedProxy?: GatewayTrustedProxyConfig;
+  /** Sonance SSO config (required when mode is "sonance-sso"). */
+  sonanceSso?: import("../config/types.gateway.js").SonanceSsoConfig;
 };
 
 export type GatewayAuthResult = {
   ok: boolean;
-  method?: "none" | "token" | "password" | "tailscale" | "device-token" | "trusted-proxy";
+  method?:
+    | "none"
+    | "token"
+    | "password"
+    | "tailscale"
+    | "device-token"
+    | "trusted-proxy"
+    | "sonance-sso";
   user?: string;
   reason?: string;
   /** Present when the request was blocked by the rate limiter. */
   rateLimited?: boolean;
   /** Milliseconds the client should wait before retrying (when rate-limited). */
   retryAfterMs?: number;
+  /** Sonance user identity (present when method is "sonance-sso"). */
+  sonanceUser?: import("./sonance-sso.js").SonanceUserIdentity;
 };
 
 type ConnectAuth = {
@@ -187,6 +203,8 @@ export function resolveGatewayAuth(params: {
   const password = authConfig.password ?? env.OPENCLAW_GATEWAY_PASSWORD ?? undefined;
   const trustedProxy = authConfig.trustedProxy;
 
+  const sonanceSso = authConfig.sonanceSso;
+
   let mode: ResolvedGatewayAuth["mode"];
   if (authConfig.mode) {
     mode = authConfig.mode;
@@ -200,7 +218,10 @@ export function resolveGatewayAuth(params: {
 
   const allowTailscale =
     authConfig.allowTailscale ??
-    (params.tailscaleMode === "serve" && mode !== "password" && mode !== "trusted-proxy");
+    (params.tailscaleMode === "serve" &&
+      mode !== "password" &&
+      mode !== "trusted-proxy" &&
+      mode !== "sonance-sso");
 
   return {
     mode,
@@ -208,6 +229,7 @@ export function resolveGatewayAuth(params: {
     password,
     allowTailscale,
     trustedProxy,
+    sonanceSso,
   };
 }
 
@@ -232,6 +254,18 @@ export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
     if (!auth.trustedProxy.userHeader || auth.trustedProxy.userHeader.trim() === "") {
       throw new Error(
         "gateway auth mode is trusted-proxy, but trustedProxy.userHeader is empty (set gateway.auth.trustedProxy.userHeader)",
+      );
+    }
+  }
+  if (auth.mode === "sonance-sso") {
+    if (!auth.sonanceSso) {
+      throw new Error(
+        "gateway auth mode is sonance-sso, but no sonanceSso config was provided (set gateway.auth.sonanceSso)",
+      );
+    }
+    if (!auth.sonanceSso.jwtSecret && !auth.sonanceSso.jwksUri) {
+      throw new Error(
+        "gateway auth mode is sonance-sso, but no verification method configured (set gateway.auth.sonanceSso.jwtSecret or .jwksUri)",
       );
     }
   }
@@ -297,6 +331,10 @@ export async function authorizeGatewayConnect(params: {
   const tailscaleWhois = params.tailscaleWhois ?? readTailscaleWhoisIdentity;
   const localDirect = isLocalDirectRequest(req, trustedProxies);
 
+  if (auth.mode === "none") {
+    return { ok: true, method: "none" };
+  }
+
   if (auth.mode === "trusted-proxy") {
     if (!auth.trustedProxy) {
       return { ok: false, reason: "trusted_proxy_config_missing" };
@@ -315,6 +353,27 @@ export async function authorizeGatewayConnect(params: {
       return { ok: true, method: "trusted-proxy", user: result.user };
     }
     return { ok: false, reason: result.reason };
+  }
+
+  if (auth.mode === "sonance-sso") {
+    if (!auth.sonanceSso) {
+      return { ok: false, reason: "sonance_sso_config_missing" };
+    }
+    const { authorizeSonanceSso } = await import("./sonance-sso.js");
+    const ssoResult = await authorizeSonanceSso({
+      req,
+      config: auth.sonanceSso,
+      trustedProxies,
+    });
+    if ("error" in ssoResult) {
+      return { ok: false, reason: ssoResult.error };
+    }
+    return {
+      ok: true,
+      method: "sonance-sso",
+      user: ssoResult.email ?? ssoResult.userId,
+      sonanceUser: ssoResult,
+    };
   }
 
   const limiter = params.rateLimiter;

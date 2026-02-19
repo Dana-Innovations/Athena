@@ -1,7 +1,9 @@
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
+import { getSonanceUserId } from "../gateway/sonance-context.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
+import { emitAuditEvent } from "../security/sonance-audit.js";
 import { isPlainObject } from "../utils.js";
 import { normalizeToolName } from "./tool-policy.js";
 import type { AnyAgentTool } from "./tools/common.js";
@@ -184,6 +186,9 @@ export function wrapToolWithBeforeToolCallHook(
   const wrappedTool: AnyAgentTool = {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
+      const startedAt = Date.now();
+      const normalizedToolName = normalizeToolName(toolName || "tool");
+
       const outcome = await runBeforeToolCallHook({
         toolName,
         params,
@@ -191,6 +196,18 @@ export function wrapToolWithBeforeToolCallHook(
         ctx,
       });
       if (outcome.blocked) {
+        emitAuditEvent({
+          userId: getSonanceUserId(ctx?.sessionKey),
+          sessionKey: ctx?.sessionKey,
+          agentId: ctx?.agentId,
+          toolName: normalizedToolName,
+          toolCallId,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          blocked: true,
+          error: outcome.reason,
+        });
         throw new Error(outcome.reason);
       }
       if (toolCallId) {
@@ -202,7 +219,6 @@ export function wrapToolWithBeforeToolCallHook(
           }
         }
       }
-      const normalizedToolName = normalizeToolName(toolName || "tool");
       try {
         const result = await execute(toolCallId, outcome.params, signal, onUpdate);
         await recordLoopOutcome({
@@ -212,6 +228,16 @@ export function wrapToolWithBeforeToolCallHook(
           toolCallId,
           result,
         });
+        emitAuditEvent({
+          userId: getSonanceUserId(ctx?.sessionKey),
+          sessionKey: ctx?.sessionKey,
+          agentId: ctx?.agentId,
+          toolName: normalizedToolName,
+          toolCallId,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          success: true,
+        });
         return result;
       } catch (err) {
         await recordLoopOutcome({
@@ -220,6 +246,17 @@ export function wrapToolWithBeforeToolCallHook(
           toolParams: outcome.params,
           toolCallId,
           error: err,
+        });
+        emitAuditEvent({
+          userId: getSonanceUserId(ctx?.sessionKey),
+          sessionKey: ctx?.sessionKey,
+          agentId: ctx?.agentId,
+          toolName: normalizedToolName,
+          toolCallId,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
         });
         throw err;
       }

@@ -822,6 +822,7 @@ export function attachGatewayWsMessageHandler(params: {
           connId,
           presenceKey,
           clientIp: reportedClientIp,
+          sonanceUser: authResult.sonanceUser,
         };
         setClient(nextClient);
         setHandshakeState("connected");

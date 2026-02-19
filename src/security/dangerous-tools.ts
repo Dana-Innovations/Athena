@@ -5,6 +5,11 @@
  * Tools denied via Gateway HTTP `POST /tools/invoke` by default.
  * These are high-risk because they enable session orchestration, control-plane actions,
  * or interactive flows that don't make sense over a non-interactive HTTP surface.
+ *
+ * Sonance fork: expanded to block all mutating / execution tools over HTTP.
+ * The `sonance` tool profile is the primary gate, but this list acts as a
+ * defense-in-depth layer so even misconfigured profiles can't expose these
+ * tools via the HTTP surface.
  */
 export const DEFAULT_GATEWAY_HTTP_TOOL_DENY = [
   // Session orchestration — spawning agents remotely is RCE
@@ -15,6 +20,19 @@ export const DEFAULT_GATEWAY_HTTP_TOOL_DENY = [
   "gateway",
   // Interactive setup — requires terminal QR scan, hangs on HTTP
   "whatsapp_login",
+  // Sonance: arbitrary code execution
+  "exec",
+  "process",
+  // Sonance: filesystem mutation
+  "write",
+  "edit",
+  "apply_patch",
+  // Sonance: remote node control
+  "nodes",
+  // Sonance: scheduled task creation
+  "cron",
+  // Sonance: browser automation (JS execution, SSRF)
+  "browser",
 ] as const;
 
 /**
@@ -32,6 +50,13 @@ export const DANGEROUS_ACP_TOOL_NAMES = [
   "fs_delete",
   "fs_move",
   "apply_patch",
+  // Sonance: additional dangerous tools
+  "process",
+  "write",
+  "edit",
+  "nodes",
+  "cron",
+  "browser",
 ] as const;
 
 export const DANGEROUS_ACP_TOOLS = new Set<string>(DANGEROUS_ACP_TOOL_NAMES);

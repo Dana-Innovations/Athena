@@ -66,6 +66,19 @@ const coreEntries: CoreCliEntry[] = [
   {
     commands: [
       {
+        name: "logout",
+        description: "Sign out of Sonance SSO",
+        hasSubcommands: false,
+      },
+    ],
+    register: async ({ program }) => {
+      const mod = await import("./register.logout.js");
+      mod.registerLogoutCommand(program);
+    },
+  },
+  {
+    commands: [
+      {
         name: "configure",
         description:
           "Interactive setup wizard for credentials, channels, gateway, and agent defaults",
