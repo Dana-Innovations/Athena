@@ -1,10 +1,23 @@
 import type { EventLogEntry } from "./app-events.ts";
 import type { CompactionStatus } from "./app-tool-stream.ts";
-import type { ApolloStatusResult, ApolloUsageResult } from "./controllers/apollo.ts";
+import type {
+  ApolloStatusResult,
+  ApolloUsageResult,
+  ApolloUserSortField,
+} from "./controllers/apollo.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
 import type { SkillMessage } from "./controllers/skills.ts";
+import type {
+  ToolWhitelistResult,
+  McpAuditResult,
+  SkillsAuditResult,
+  NodesAuditResult,
+  AgentsAuditResult,
+  WhitelistTab,
+} from "./controllers/tool-whitelist.ts";
+import type { UpstreamStatusResult, UpstreamCommitsResult } from "./controllers/upstream-sync.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
@@ -189,6 +202,38 @@ export type AppViewState = {
   apolloError: string | null;
   apolloStatus: ApolloStatusResult | null;
   apolloUsage: ApolloUsageResult | null;
+  apolloTab: "users" | "requests" | "models";
+  apolloUserFilter: string;
+  apolloUserSort: ApolloUserSortField;
+  apolloUserSortDir: "asc" | "desc";
+  toolWhitelistLoading: boolean;
+  toolWhitelistError: string | null;
+  toolWhitelistData: ToolWhitelistResult | null;
+  toolWhitelistFilter: "all" | "allowed" | "denied" | "unreviewed";
+  whitelistTab: WhitelistTab;
+  whitelistMcpLoading: boolean;
+  whitelistMcpError: string | null;
+  whitelistMcpData: McpAuditResult | null;
+  whitelistSkillsLoading: boolean;
+  whitelistSkillsError: string | null;
+  whitelistSkillsData: SkillsAuditResult | null;
+  whitelistNodesLoading: boolean;
+  whitelistNodesError: string | null;
+  whitelistNodesData: NodesAuditResult | null;
+  whitelistAgentsLoading: boolean;
+  whitelistAgentsError: string | null;
+  whitelistAgentsData: AgentsAuditResult | null;
+  whitelistBusy: string | null;
+  whitelistRestartNeeded: boolean;
+  whitelistColumnFilters: Record<string, string[]>;
+  whitelistFilterOpen: string | null;
+  whitelistFilterSearch: string;
+  whitelistSearch: string;
+  whitelistCollapsed: Record<string, boolean>;
+  upstreamSyncLoading: boolean;
+  upstreamSyncError: string | null;
+  upstreamSyncStatus: UpstreamStatusResult | null;
+  upstreamSyncCommits: UpstreamCommitsResult | null;
   cronLoading: boolean;
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;

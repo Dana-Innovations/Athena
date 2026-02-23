@@ -12,6 +12,9 @@
 export type CortexClientConfig = {
   apiBaseUrl: string;
   apiKey: string;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+  supabaseJwtSecret?: string;
 };
 
 export type CortexTool = {
@@ -133,6 +136,17 @@ type CortexUsageLogsResponse = {
   nextCursor?: string;
 };
 
+/** Per-user aggregate for the dashboard leaderboard. */
+export type ApolloUserBreakdown = {
+  userEmail: string;
+  userDisplayName: string | null;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: number;
+};
+
 /** Normalized shape that the Athena UI expects. */
 export type ApolloUsageSummary = {
   totalRequests: number;
@@ -140,6 +154,7 @@ export type ApolloUsageSummary = {
   totalOutputTokens: number;
   totalCost: number;
   keySourceBreakdown: Record<string, { requests: number; cost: number }>;
+  userBreakdown: ApolloUserBreakdown[];
   recentRequests: Array<{
     timestamp: string;
     model: string;
@@ -153,20 +168,50 @@ export type ApolloUsageSummary = {
   }>;
 };
 
+/** Per-user aggregate from Supabase direct query. */
+export type ApolloDashboardUser = {
+  userId: string;
+  email: string;
+  displayName: string | null;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: number;
+};
+
+/** Org-wide usage summary from the Supabase direct query. */
+export type ApolloDashboardUsage = {
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number;
+  users: ApolloDashboardUser[];
+};
+
 const EXECUTE_TIMEOUT_MS = 120_000;
 
 export class CortexClient {
   private baseUrl: string;
   private apiKey: string;
+  private supabaseUrl: string;
+  private supabaseServiceRoleKey: string;
 
   constructor(config: CortexClientConfig) {
     this.baseUrl = config.apiBaseUrl.replace(/\/+$/, "");
     this.apiKey = config.apiKey;
+    this.supabaseUrl = (config.supabaseUrl ?? "").replace(/\/+$/, "");
+    this.supabaseServiceRoleKey = config.supabaseServiceRoleKey ?? "";
   }
 
   private async request<T>(
     path: string,
-    opts?: { method?: string; body?: unknown; timeoutMs?: number },
+    opts?: {
+      method?: string;
+      body?: unknown;
+      timeoutMs?: number;
+      headers?: Record<string, string>;
+    },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
@@ -180,6 +225,7 @@ export class CortexClient {
         headers: {
           "X-API-Key": this.apiKey,
           "Content-Type": "application/json",
+          ...opts?.headers,
         },
         body: opts?.body ? JSON.stringify(opts.body) : undefined,
         signal: controller.signal,
@@ -291,7 +337,7 @@ export class CortexClient {
     if (params?.endDate) qs.set("end_date", params.endDate);
 
     const logsQs = new URLSearchParams(qs);
-    logsQs.set("limit", String(params?.limit ?? 50));
+    logsQs.set("limit", String(Math.min(params?.limit ?? 100, 100)));
 
     const query = qs.toString();
     const logsQuery = logsQs.toString();
@@ -331,13 +377,184 @@ export class CortexClient {
       userDisplayName: log.userDisplayName,
     }));
 
+    // Build per-user breakdown from logs
+    const userMap = new Map<
+      string,
+      {
+        displayName: string | null;
+        requests: number;
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+        cost: number;
+      }
+    >();
+    for (const log of logs?.logs ?? []) {
+      const email = log.userEmail ?? "unknown";
+      const entry = userMap.get(email) ?? {
+        displayName: log.userDisplayName ?? null,
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cost: 0,
+      };
+      entry.requests += 1;
+      entry.inputTokens += log.inputTokens;
+      entry.outputTokens += log.outputTokens;
+      entry.totalTokens += log.totalTokens;
+      entry.cost += log.costUsd;
+      if (log.userDisplayName && !entry.displayName) {
+        entry.displayName = log.userDisplayName;
+      }
+      userMap.set(email, entry);
+    }
+
+    const userBreakdown: ApolloUserBreakdown[] = [...userMap.entries()].map(([email, data]) => ({
+      userEmail: email,
+      userDisplayName: data.displayName,
+      requests: data.requests,
+      inputTokens: data.inputTokens,
+      outputTokens: data.outputTokens,
+      totalTokens: data.totalTokens,
+      cost: data.cost,
+    }));
+
     return {
       totalRequests: usage?.summary.totalRequests ?? 0,
       totalInputTokens: usage?.summary.totalInputTokens ?? 0,
       totalOutputTokens: usage?.summary.totalOutputTokens ?? 0,
       totalCost: usage?.summary.totalCostUsd ?? 0,
       keySourceBreakdown: breakdown,
+      userBreakdown,
       recentRequests,
     };
+  }
+
+  // ── Dashboard (org-wide) usage via Supabase direct query ─────────────
+
+  /**
+   * Fetch org-wide usage by querying Supabase's ai_usage_logs table directly
+   * with the service-role key (bypasses RLS). Aggregates by user and joins
+   * with Supabase auth.users for display names / emails.
+   */
+  async getOrgWideUsage(params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApolloDashboardUsage> {
+    if (!this.supabaseUrl || !this.supabaseServiceRoleKey) {
+      throw new Error("Supabase credentials not configured for org-wide usage");
+    }
+
+    const headers = {
+      Authorization: `Bearer ${this.supabaseServiceRoleKey}`,
+      apikey: this.supabaseServiceRoleKey,
+    };
+
+    // Build PostgREST filter for date range
+    const filters: string[] = [];
+    if (params?.startDate) filters.push(`created_at=gte.${params.startDate}T00:00:00Z`);
+    if (params?.endDate) filters.push(`created_at=lte.${params.endDate}T23:59:59Z`);
+    const filterStr = filters.length ? `&${filters.join("&")}` : "";
+
+    // Fetch usage logs in pages (PostgREST default limit is 1000)
+    type UsageRow = {
+      user_id: string;
+      total_cost_microdollars: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      model: string | null;
+    };
+
+    const allRows: UsageRow[] = [];
+    let offset = 0;
+    const pageSize = 1000;
+    while (true) {
+      const url =
+        `${this.supabaseUrl}/rest/v1/ai_usage_logs` +
+        `?select=user_id,total_cost_microdollars,input_tokens,output_tokens,model` +
+        `&order=created_at${filterStr}&offset=${offset}&limit=${pageSize}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        throw new Error(`Supabase query failed: ${res.status} ${await res.text().catch(() => "")}`);
+      }
+      const page = (await res.json()) as UsageRow[];
+      allRows.push(...page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    // Fetch user directory for display names
+    type SupabaseUser = {
+      id: string;
+      email?: string;
+      user_metadata?: { full_name?: string; name?: string; display_name?: string };
+    };
+
+    let userDirectory = new Map<string, { email: string; displayName: string | null }>();
+    try {
+      const usersRes = await fetch(`${this.supabaseUrl}/auth/v1/admin/users`, { headers });
+      if (usersRes.ok) {
+        const usersData = (await usersRes.json()) as { users?: SupabaseUser[] } | SupabaseUser[];
+        const users = Array.isArray(usersData) ? usersData : (usersData.users ?? []);
+        for (const u of users) {
+          const meta = u.user_metadata ?? {};
+          const displayName = meta.full_name ?? meta.name ?? meta.display_name ?? null;
+          userDirectory.set(u.id, { email: u.email ?? "unknown", displayName });
+        }
+      }
+    } catch {
+      // Non-fatal; user info will show as IDs
+    }
+
+    // Aggregate by user_id
+    const userAgg = new Map<
+      string,
+      { requests: number; costMicro: number; inputTokens: number; outputTokens: number }
+    >();
+    for (const row of allRows) {
+      const uid = row.user_id ?? "unknown";
+      const entry = userAgg.get(uid) ?? {
+        requests: 0,
+        costMicro: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      };
+      entry.requests += 1;
+      entry.costMicro += row.total_cost_microdollars ?? 0;
+      entry.inputTokens += row.input_tokens ?? 0;
+      entry.outputTokens += row.output_tokens ?? 0;
+      userAgg.set(uid, entry);
+    }
+
+    let totalRequests = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCost = 0;
+
+    const users: ApolloDashboardUser[] = [];
+    for (const [uid, agg] of userAgg) {
+      const cost = agg.costMicro / 1_000_000;
+      const info = userDirectory.get(uid);
+      totalRequests += agg.requests;
+      totalInputTokens += agg.inputTokens;
+      totalOutputTokens += agg.outputTokens;
+      totalCost += cost;
+      users.push({
+        userId: uid,
+        email: info?.email ?? uid,
+        displayName: info?.displayName ?? null,
+        requests: agg.requests,
+        inputTokens: agg.inputTokens,
+        outputTokens: agg.outputTokens,
+        totalTokens: agg.inputTokens + agg.outputTokens,
+        cost,
+      });
+    }
+
+    // Sort by cost descending
+    users.sort((a, b) => b.cost - a.cost);
+
+    return { totalRequests, totalInputTokens, totalOutputTokens, totalCost, users };
   }
 }

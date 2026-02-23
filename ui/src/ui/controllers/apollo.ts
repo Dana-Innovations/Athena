@@ -2,7 +2,8 @@
  * Apollo Usage Controller
  *
  * Fetches Apollo proxy status and usage data via gateway methods
- * registered by the sonance-cortex plugin.
+ * registered by the sonance-cortex plugin. Also fetches org-wide
+ * dashboard usage from Supabase when available.
  */
 
 export type ApolloState = {
@@ -10,10 +11,15 @@ export type ApolloState = {
   apolloError: string | null;
   apolloStatus: ApolloStatusResult | null;
   apolloUsage: ApolloUsageResult | null;
+  apolloUserFilter: string;
+  apolloUserSort: ApolloUserSortField;
+  apolloUserSortDir: "asc" | "desc";
   client: {
     request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   } | null;
 };
+
+export type ApolloUserSortField = "cost" | "requests" | "tokens" | "costPerRequest";
 
 export type ApolloStatusResult = {
   apolloHealthy: boolean;
@@ -34,12 +40,41 @@ export type ApolloStatusResult = {
   keyStatusError?: string;
 };
 
+export type ApolloUserBreakdownEntry = {
+  userId?: string;
+  userEmail: string;
+  userDisplayName: string | null;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: number;
+};
+
+export type ApolloDashboardResult = {
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number;
+  users: Array<{
+    userId: string;
+    email: string;
+    displayName: string | null;
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cost: number;
+  }>;
+};
+
 export type ApolloUsageResult = {
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCost: number;
   keySourceBreakdown: Record<string, { requests: number; cost: number }>;
+  userBreakdown: ApolloUserBreakdownEntry[];
   recentRequests: Array<{
     timestamp: string;
     model: string;
@@ -51,6 +86,15 @@ export type ApolloUsageResult = {
     userEmail?: string;
     userDisplayName?: string;
   }>;
+  /** Org-wide totals from the Supabase direct query (when available). */
+  dashboardTotals?: {
+    totalRequests: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCost: number;
+  };
+  /** Per-user breakdown from the Supabase direct query (when available). */
+  dashboardUsers?: ApolloUserBreakdownEntry[];
 };
 
 export async function loadApolloData(state: ApolloState): Promise<void> {
@@ -62,9 +106,10 @@ export async function loadApolloData(state: ApolloState): Promise<void> {
   state.apolloError = null;
 
   try {
-    const [statusRes, usageRes] = await Promise.allSettled([
+    const [statusRes, usageRes, dashboardRes] = await Promise.allSettled([
       state.client.request("sonance.apollo.status"),
-      state.client.request("sonance.apollo.usage", { limit: 50 }),
+      state.client.request("sonance.apollo.usage", { limit: 100 }),
+      state.client.request("sonance.apollo.dashboard"),
     ]);
 
     if (statusRes.status === "fulfilled") {
@@ -74,7 +119,31 @@ export async function loadApolloData(state: ApolloState): Promise<void> {
     }
 
     if (usageRes.status === "fulfilled") {
-      state.apolloUsage = usageRes.value as ApolloUsageResult;
+      const usage = usageRes.value as ApolloUsageResult;
+
+      if (dashboardRes.status === "fulfilled") {
+        const dashboard = dashboardRes.value as ApolloDashboardResult;
+        if (dashboard.users && dashboard.users.length > 0) {
+          usage.dashboardTotals = {
+            totalRequests: dashboard.totalRequests,
+            totalInputTokens: dashboard.totalInputTokens,
+            totalOutputTokens: dashboard.totalOutputTokens,
+            totalCost: dashboard.totalCost,
+          };
+          usage.dashboardUsers = dashboard.users.map((u) => ({
+            userId: u.userId,
+            userEmail: u.email,
+            userDisplayName: u.displayName,
+            requests: u.requests,
+            inputTokens: u.inputTokens,
+            outputTokens: u.outputTokens,
+            totalTokens: u.totalTokens,
+            cost: u.cost,
+          }));
+        }
+      }
+
+      state.apolloUsage = usage;
     } else {
       state.apolloUsage = null;
     }

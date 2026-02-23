@@ -24,6 +24,8 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
+import { loadToolWhitelist } from "./controllers/tool-whitelist.ts";
+import { loadUpstreamStatus } from "./controllers/upstream-sync.ts";
 import {
   inferBasePathFromPathname,
   normalizeBasePath,
@@ -235,6 +237,12 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "apollo") {
     await loadApolloData(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "whitelist") {
+    await loadToolWhitelist(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "upstream-sync") {
+    await loadUpstreamStatus(host as unknown as OpenClawApp);
   }
   if (host.tab === "chat") {
     await refreshChat(host as unknown as Parameters<typeof refreshChat>[0]);

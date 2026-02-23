@@ -53,6 +53,19 @@ import {
   updateSkillEdit,
   updateSkillEnabled,
 } from "./controllers/skills.ts";
+import {
+  loadToolWhitelist,
+  loadWhitelistMcp,
+  loadWhitelistSkills,
+  loadWhitelistNodes,
+  loadWhitelistAgents,
+  toggleToolWhitelist,
+  toggleSkillWhitelist,
+  toggleMcpWhitelist,
+  toggleNodeWhitelist,
+  type WhitelistTab,
+} from "./controllers/tool-whitelist.ts";
+import { loadUpstreamStatus } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
 import { normalizeBasePath, TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
 import { renderAgents } from "./views/agents.ts";
@@ -70,6 +83,8 @@ import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
 import { renderSessions } from "./views/sessions.ts";
 import { renderSkills } from "./views/skills.ts";
+import { renderWhitelist } from "./views/tool-whitelist.ts";
+import { renderUpstreamSync } from "./views/upstream-sync.ts";
 
 const AVATAR_DATA_RE = /^data:/i;
 const AVATAR_HTTP_RE = /^https?:\/\//i;
@@ -330,7 +345,140 @@ export function renderApp(state: AppViewState) {
                 error: state.apolloError,
                 status: state.apolloStatus,
                 usage: state.apolloUsage,
+                activeTab: state.apolloTab,
+                userFilter: state.apolloUserFilter,
+                userSort: state.apolloUserSort,
+                userSortDir: state.apolloUserSortDir,
                 onRefresh: () => loadApolloData(state),
+                onTabChange: (tab: "users" | "requests" | "models") => {
+                  state.apolloTab = tab;
+                },
+                onUserFilterChange: (email: string) => {
+                  state.apolloUserFilter = email;
+                },
+                onUserSortChange: (
+                  field: import("./controllers/apollo.js").ApolloUserSortField,
+                ) => {
+                  if (state.apolloUserSort === field) {
+                    state.apolloUserSortDir = state.apolloUserSortDir === "desc" ? "asc" : "desc";
+                  } else {
+                    state.apolloUserSort = field;
+                    state.apolloUserSortDir = "desc";
+                  }
+                },
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "whitelist"
+            ? renderWhitelist({
+                activeTab: state.whitelistTab,
+                onTabChange: (tab: WhitelistTab) => {
+                  state.whitelistTab = tab;
+                  state.whitelistColumnFilters = {};
+                  state.whitelistFilterOpen = null;
+                  state.whitelistFilterSearch = "";
+                  state.whitelistSearch = "";
+                  state.whitelistCollapsed = {};
+                  if (tab === "tools" && !state.toolWhitelistData && !state.toolWhitelistLoading) {
+                    void loadToolWhitelist(state);
+                  }
+                  if (tab === "mcp" && !state.whitelistMcpData && !state.whitelistMcpLoading) {
+                    void loadWhitelistMcp(state);
+                  }
+                  if (
+                    tab === "skills" &&
+                    !state.whitelistSkillsData &&
+                    !state.whitelistSkillsLoading
+                  ) {
+                    void loadWhitelistSkills(state);
+                  }
+                  if (
+                    tab === "nodes" &&
+                    !state.whitelistNodesData &&
+                    !state.whitelistNodesLoading
+                  ) {
+                    void loadWhitelistNodes(state);
+                  }
+                  if (
+                    tab === "agents" &&
+                    !state.whitelistAgentsData &&
+                    !state.whitelistAgentsLoading
+                  ) {
+                    void loadWhitelistAgents(state);
+                  }
+                },
+                busy: state.whitelistBusy,
+                restartNeeded: state.whitelistRestartNeeded,
+                onDismissRestart: () => {
+                  state.whitelistRestartNeeded = false;
+                },
+                columnFilters: state.whitelistColumnFilters,
+                filterOpen: state.whitelistFilterOpen,
+                filterSearch: state.whitelistFilterSearch,
+                onColumnFilterChange: (col: string, vals: string[]) => {
+                  state.whitelistColumnFilters = { ...state.whitelistColumnFilters, [col]: vals };
+                },
+                onFilterDropdownToggle: (col: string | null) => {
+                  state.whitelistFilterOpen = col;
+                  state.whitelistFilterSearch = "";
+                },
+                onFilterSearchChange: (text: string) => {
+                  state.whitelistFilterSearch = text;
+                },
+                search: state.whitelistSearch,
+                onSearchChange: (text: string) => {
+                  state.whitelistSearch = text;
+                },
+                collapsed: state.whitelistCollapsed,
+                onToggleCollapse: (group: string) => {
+                  state.whitelistCollapsed = {
+                    ...state.whitelistCollapsed,
+                    [group]: !state.whitelistCollapsed[group],
+                  };
+                },
+                toolsLoading: state.toolWhitelistLoading,
+                toolsError: state.toolWhitelistError,
+                toolsData: state.toolWhitelistData,
+                onToolsRefresh: () => loadToolWhitelist(state),
+                onToolToggle: (name: string, allowed: boolean) =>
+                  void toggleToolWhitelist(state, name, allowed),
+                mcpLoading: state.whitelistMcpLoading,
+                mcpError: state.whitelistMcpError,
+                mcpData: state.whitelistMcpData,
+                onMcpRefresh: () => loadWhitelistMcp(state),
+                onMcpToggle: (name: string, register: boolean) =>
+                  void toggleMcpWhitelist(state, name, register),
+                skillsLoading: state.whitelistSkillsLoading,
+                skillsError: state.whitelistSkillsError,
+                skillsData: state.whitelistSkillsData,
+                onSkillsRefresh: () => loadWhitelistSkills(state),
+                onSkillToggle: (key: string, enabled: boolean) =>
+                  void toggleSkillWhitelist(state, key, enabled),
+                nodesLoading: state.whitelistNodesLoading,
+                nodesError: state.whitelistNodesError,
+                nodesData: state.whitelistNodesData,
+                onNodesRefresh: () => loadWhitelistNodes(state),
+                onNodeToggle: (nodeId: string, allowed: boolean) =>
+                  void toggleNodeWhitelist(state, nodeId, allowed),
+                agentsLoading: state.whitelistAgentsLoading,
+                agentsError: state.whitelistAgentsError,
+                agentsData: state.whitelistAgentsData,
+                onAgentsRefresh: () => loadWhitelistAgents(state),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "upstream-sync"
+            ? renderUpstreamSync({
+                loading: state.upstreamSyncLoading,
+                error: state.upstreamSyncError,
+                status: state.upstreamSyncStatus,
+                commits: state.upstreamSyncCommits,
+                onRefresh: () => loadUpstreamStatus(state),
+                onFetch: () => loadUpstreamStatus(state, { fetch: true }),
               })
             : nothing
         }

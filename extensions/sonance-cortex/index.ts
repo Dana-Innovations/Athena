@@ -33,6 +33,9 @@ const cortexPlugin = {
   register(api: OpenClawPluginApi) {
     const config = parseCortexConfig(api.pluginConfig);
 
+    // Local-only Sonance gateway methods — no Cortex connectivity required.
+    registerLocalSonanceMethods(api);
+
     if (!config.enabled) {
       api.logger.info("[sonance-cortex] plugin disabled");
       return;
@@ -48,6 +51,9 @@ const cortexPlugin = {
     const client = new CortexClient({
       apiBaseUrl: config.apiBaseUrl,
       apiKey: config.apiKey,
+      supabaseUrl: config.supabaseUrl,
+      supabaseServiceRoleKey: config.supabaseServiceRoleKey,
+      supabaseJwtSecret: config.supabaseJwtSecret,
     });
 
     // -----------------------------------------------------------------------
@@ -402,6 +408,18 @@ const cortexPlugin = {
           limit: typeof params?.limit === "number" ? params.limit : undefined,
         });
         respond(true, usage);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.apollo.dashboard", async ({ params, respond }) => {
+      try {
+        const dashboard = await client.getOrgWideUsage({
+          startDate: typeof params?.startDate === "string" ? params.startDate : undefined,
+          endDate: typeof params?.endDate === "string" ? params.endDate : undefined,
+        });
+        respond(true, dashboard);
       } catch (err) {
         respond(false, { error: String(err) });
       }
@@ -806,6 +824,451 @@ function syncMcpAgent(
   } catch (err) {
     logger.warn("[sonance-cortex] agent sync failed: " + String(err));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local-only Sonance gateway methods (no Cortex API needed)
+// ---------------------------------------------------------------------------
+
+function registerLocalSonanceMethods(api: OpenClawPluginApi): void {
+  // -- Tool & Plugin Whitelist Audit (dynamic runtime discovery) -----------
+  api.registerGatewayMethod("sonance.tools.audit", async ({ respond }) => {
+    try {
+      const { TOOL_GROUPS } = await import("../../src/agents/tool-policy.js");
+      const { buildPluginStatusReport } = await import("../../src/plugins/status.js");
+
+      const sonanceAllowed = new Set(TOOL_GROUPS["group:sonance"] ?? []);
+      const sonanceDenyProfile = new Set([
+        "exec",
+        "process",
+        "write",
+        "edit",
+        "apply_patch",
+        "gateway",
+        "nodes",
+        "sessions_spawn",
+        "sessions_send",
+        "whatsapp_login",
+        "cron",
+        "browser",
+      ]);
+
+      type Risk = "critical" | "high" | "medium" | "low" | "safe";
+      type Status = "allowed" | "denied" | "unreviewed";
+
+      const RISK_MAP: Record<string, { risk: Risk; concerns: string[] }> = {
+        read: { risk: "low", concerns: ["Can read config files containing secrets"] },
+        write: {
+          risk: "critical",
+          concerns: ["Arbitrary file creation", "Could overwrite critical configs"],
+        },
+        edit: { risk: "critical", concerns: ["Can modify any accessible file"] },
+        apply_patch: { risk: "critical", concerns: ["Bulk file modification"] },
+        exec: { risk: "critical", concerns: ["Arbitrary command execution", "Data exfiltration"] },
+        process: { risk: "critical", concerns: ["Can kill system processes"] },
+        web_search: { risk: "medium", concerns: ["Sends queries to external APIs"] },
+        web_fetch: { risk: "medium", concerns: ["Outbound network requests", "SSRF potential"] },
+        message: { risk: "high", concerns: ["Data exfiltration via messages"] },
+        sessions_list: { risk: "low", concerns: ["Reveals session metadata"] },
+        sessions_history: { risk: "low", concerns: ["Can read other sessions' data"] },
+        sessions_send: { risk: "high", concerns: ["Cross-session prompt injection"] },
+        sessions_spawn: { risk: "high", concerns: ["Creates autonomous sub-agents"] },
+        subagents: { risk: "medium", concerns: ["Sub-agent tree visibility"] },
+        session_status: { risk: "safe", concerns: [] },
+        browser: { risk: "critical", concerns: ["Full browser automation", "Credential theft"] },
+        canvas: { risk: "medium", concerns: ["Client-side code execution"] },
+        cron: { risk: "high", concerns: ["Persistent autonomous execution"] },
+        gateway: { risk: "high", concerns: ["Service disruption"] },
+        nodes: { risk: "high", concerns: ["Remote command execution"] },
+        agents_list: { risk: "safe", concerns: [] },
+        image: { risk: "low", concerns: ["External API calls"] },
+        tts: { risk: "low", concerns: ["External API calls"] },
+        memory_search: { risk: "low", concerns: ["Can surface indexed content"] },
+        memory_get: { risk: "low", concerns: ["Direct memory access"] },
+        whatsapp_login: { risk: "high", concerns: ["Owner-only channel authentication"] },
+        lobster: { risk: "medium", concerns: ["Interactive shell sessions"] },
+        llm_task: { risk: "medium", concerns: ["Spawns autonomous LLM sub-tasks"] },
+      };
+
+      const DESCRIPTIONS: Record<string, string> = {
+        read: "Read file contents from workspace",
+        write: "Write/create files on the filesystem",
+        edit: "Edit existing files (find & replace)",
+        apply_patch: "Apply unified diff patches to files",
+        exec: "Execute shell commands on the host",
+        process: "Manage background processes",
+        web_search: "Search the web",
+        web_fetch: "Fetch and parse web page content",
+        message: "Send messages to channels/users",
+        sessions_list: "List active agent sessions",
+        sessions_history: "Read session conversation history",
+        sessions_send: "Send a message to another session",
+        sessions_spawn: "Spawn a new sub-agent session",
+        subagents: "List/manage spawned sub-agent sessions",
+        session_status: "Show current session status",
+        browser: "Control a headless browser",
+        canvas: "Render HTML/React UI canvases",
+        cron: "Create/manage scheduled tasks",
+        gateway: "Control the gateway server",
+        nodes: "Manage remote node connections",
+        agents_list: "List configured agents",
+        image: "Generate images via AI models",
+        tts: "Text-to-speech synthesis",
+        memory_search: "Search vector memory store",
+        memory_get: "Retrieve specific memory entries",
+        whatsapp_login: "WhatsApp login flow (owner-only)",
+      };
+
+      function categoryForTool(name: string): string {
+        for (const [group, members] of Object.entries(TOOL_GROUPS)) {
+          if (group === "group:openclaw" || group === "group:sonance") continue;
+          if (members.includes(name)) return group.replace("group:", "");
+        }
+        return "other";
+      }
+
+      function resolveStatus(name: string): Status {
+        if (sonanceDenyProfile.has(name)) return "denied";
+        if (sonanceAllowed.has(name)) return "allowed";
+        return "unreviewed";
+      }
+
+      const coreNames = new Set(TOOL_GROUPS["group:openclaw"] ?? []);
+      for (const name of [
+        "read",
+        "write",
+        "edit",
+        "apply_patch",
+        "exec",
+        "process",
+        "tts",
+        "whatsapp_login",
+      ]) {
+        coreNames.add(name);
+      }
+
+      type ToolEntry = {
+        name: string;
+        category: string;
+        risk: Risk;
+        status: Status;
+        description: string;
+        concerns: string[];
+        source: "core" | "plugin" | "channel";
+        pluginId?: string;
+      };
+
+      const coreTools: ToolEntry[] = [];
+      for (const name of coreNames) {
+        const riskInfo = RISK_MAP[name] ?? {
+          risk: "medium" as Risk,
+          concerns: ["Not yet assessed"],
+        };
+        coreTools.push({
+          name,
+          category: categoryForTool(name),
+          risk: riskInfo.risk,
+          status: resolveStatus(name),
+          description: DESCRIPTIONS[name] ?? name,
+          concerns: riskInfo.concerns,
+          source: "core",
+        });
+      }
+
+      const pluginTools: ToolEntry[] = [];
+      type PluginInfo = {
+        id: string;
+        name: string;
+        status: string;
+        enabled: boolean;
+        toolNames: string[];
+        source: string;
+        kind?: string;
+        channelIds: string[];
+        gatewayMethods: string[];
+      };
+      const plugins: PluginInfo[] = [];
+
+      try {
+        const report = buildPluginStatusReport();
+        for (const plugin of report.plugins) {
+          plugins.push({
+            id: plugin.id,
+            name: plugin.name,
+            status: plugin.status,
+            enabled: plugin.enabled,
+            toolNames: plugin.toolNames,
+            source: plugin.source,
+            kind: plugin.kind,
+            channelIds: plugin.channelIds,
+            gatewayMethods: plugin.gatewayMethods,
+          });
+
+          for (const toolName of plugin.toolNames) {
+            if (coreNames.has(toolName)) continue;
+            const riskInfo = RISK_MAP[toolName] ?? {
+              risk: "medium" as Risk,
+              concerns: ["Third-party plugin tool — not yet assessed"],
+            };
+            pluginTools.push({
+              name: toolName,
+              category: "plugin:" + plugin.id,
+              risk: riskInfo.risk,
+              status: resolveStatus(toolName),
+              description: DESCRIPTIONS[toolName] ?? `Tool from ${plugin.name}`,
+              concerns: riskInfo.concerns,
+              source: "plugin",
+              pluginId: plugin.id,
+            });
+          }
+        }
+      } catch {
+        // Plugin system may not be available; core tools still work
+      }
+
+      const allTools = [...coreTools, ...pluginTools];
+      const summary = {
+        total: allTools.length,
+        allowed: allTools.filter((t) => t.status === "allowed").length,
+        denied: allTools.filter((t) => t.status === "denied").length,
+        unreviewed: allTools.filter((t) => t.status === "unreviewed").length,
+        coreCount: coreTools.length,
+        pluginToolCount: pluginTools.length,
+        pluginCount: plugins.length,
+      };
+
+      respond(true, { tools: allTools, plugins, summary });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  // -- MCP Server Whitelist Audit -------------------------------------------
+  api.registerGatewayMethod("sonance.mcp.audit", async ({ respond }) => {
+    try {
+      const config = parseCortexConfig(api.pluginConfig);
+
+      let allPluginToolNames: string[] = [];
+      try {
+        const { buildPluginStatusReport } = await import("../../src/plugins/status.js");
+        const report = buildPluginStatusReport();
+        for (const plugin of report.plugins) {
+          allPluginToolNames = allPluginToolNames.concat(plugin.toolNames);
+        }
+      } catch {
+        // Plugin system may not be available
+      }
+
+      const servers = config.mcpServers.map((entry) => {
+        const toolPrefix = `cortex_${entry.name.replace(/[^a-zA-Z0-9]/g, "_")}__`;
+        const toolNames = allPluginToolNames.filter((t) => t.startsWith(toolPrefix));
+        return {
+          name: entry.name,
+          transport: entry.transport ?? (entry.command ? "stdio" : "http"),
+          url: entry.url,
+          command: entry.command,
+          registerTools: entry.registerTools !== false,
+          toolCount: toolNames.length,
+          toolNames,
+        };
+      });
+
+      respond(true, {
+        servers,
+        summary: {
+          total: servers.length,
+          active: servers.filter((s) => s.registerTools).length,
+          toolsRegistered: servers.reduce((sum, s) => sum + s.toolCount, 0),
+        },
+      });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  // -- Upstream Sync Status ------------------------------------------------
+  api.registerGatewayMethod("sonance.upstream.status", async ({ params, respond }) => {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+      const cwd = process.cwd();
+
+      const doFetch = params?.fetch === true;
+      if (doFetch) {
+        await execFileAsync("git", ["fetch", "upstream", "main", "--quiet"], {
+          cwd,
+          timeout: 30_000,
+        });
+      }
+
+      const hasUpstream = await execFileAsync("git", ["remote", "get-url", "upstream"], {
+        cwd,
+        timeout: 5_000,
+      })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!hasUpstream) {
+        respond(true, {
+          configured: false,
+          ahead: 0,
+          behind: 0,
+          mergeBase: null,
+          localBranch: null,
+          lastFetched: null,
+        });
+        return;
+      }
+
+      const [branchRes, countRes, baseRes] = await Promise.all([
+        execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 5_000 }),
+        execFileAsync("git", ["rev-list", "--left-right", "--count", "HEAD...upstream/main"], {
+          cwd,
+          timeout: 5_000,
+        }).catch(() => ({ stdout: "0\t0" })),
+        execFileAsync("git", ["merge-base", "HEAD", "upstream/main"], {
+          cwd,
+          timeout: 5_000,
+        }).catch(() => ({ stdout: "" })),
+      ]);
+
+      const localBranch = branchRes.stdout.trim();
+      const [ahead, behind] = countRes.stdout.trim().split(/\s+/).map(Number);
+      const mergeBase = baseRes.stdout.trim().slice(0, 12) || null;
+
+      respond(true, {
+        configured: true,
+        ahead: ahead || 0,
+        behind: behind || 0,
+        mergeBase,
+        localBranch,
+        lastFetched: doFetch ? new Date().toISOString() : null,
+      });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  // -- Upstream Commits (categorized diffs + conflict detection) -----------
+  api.registerGatewayMethod("sonance.upstream.commits", async ({ respond }) => {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const execFileAsync = promisify(execFile);
+      const cwd = process.cwd();
+
+      const hasUpstream = await execFileAsync("git", ["remote", "get-url", "upstream"], {
+        cwd,
+        timeout: 5_000,
+      })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!hasUpstream) {
+        respond(true, { commits: [], categories: [], conflicts: [], newTools: [] });
+        return;
+      }
+
+      const baseRes = await execFileAsync("git", ["merge-base", "HEAD", "upstream/main"], {
+        cwd,
+        timeout: 5_000,
+      }).catch(() => ({ stdout: "" }));
+      const mergeBase = baseRes.stdout.trim();
+      if (!mergeBase) {
+        respond(true, { commits: [], categories: [], conflicts: [], newTools: [] });
+        return;
+      }
+
+      const [logRes, diffRes] = await Promise.all([
+        execFileAsync("git", ["log", "--oneline", "--no-merges", `HEAD..upstream/main`], {
+          cwd,
+          timeout: 10_000,
+        }).catch(() => ({ stdout: "" })),
+        execFileAsync("git", ["diff", "--name-only", mergeBase, "upstream/main"], {
+          cwd,
+          timeout: 10_000,
+        }).catch(() => ({ stdout: "" })),
+      ]);
+
+      const commits = logRes.stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const sep = line.indexOf(" ");
+          return { hash: line.slice(0, sep), message: line.slice(sep + 1) };
+        });
+
+      const changedFiles = diffRes.stdout.trim().split("\n").filter(Boolean);
+
+      const categoryMap: Record<string, string[]> = {};
+      const riskMap: Record<string, string> = {
+        tools: "HIGH",
+        security: "HIGH",
+        config: "MEDIUM",
+        plugins: "MEDIUM",
+        gateway: "MEDIUM",
+        channels: "LOW",
+        deps: "MEDIUM",
+        tests: "LOW",
+        docs: "LOW",
+        cli: "LOW",
+        ui: "LOW",
+        infra: "LOW",
+        other: "LOW",
+      };
+
+      for (const file of changedFiles) {
+        let cat = "other";
+        if (/^src\/agents\/tool|^src\/agents\/pi-tools/.test(file)) cat = "tools";
+        else if (/^src\/security\/|^src\/gateway\/auth/.test(file)) cat = "security";
+        else if (/^src\/config\//.test(file)) cat = "config";
+        else if (/^src\/plugins\/|^extensions\//.test(file)) cat = "plugins";
+        else if (/^src\/gateway\//.test(file)) cat = "gateway";
+        else if (/^src\/cli\/|^src\/commands\//.test(file)) cat = "cli";
+        else if (/\.test\.ts$|^test\//.test(file)) cat = "tests";
+        else if (/^docs\//.test(file)) cat = "docs";
+        else if (
+          /^src\/channels\/|^src\/telegram|^src\/discord|^src\/slack|^src\/signal|^src\/imessage|^src\/routing/.test(
+            file,
+          )
+        )
+          cat = "channels";
+        else if (/^package\.json$|^pnpm-lock\.yaml$|^patches\//.test(file)) cat = "deps";
+        else if (/^src\/tui|^src\/web|^src\/canvas|^apps\/|^ui\//.test(file)) cat = "ui";
+        else if (/^scripts\/|^\.github\//.test(file)) cat = "infra";
+
+        if (!categoryMap[cat]) categoryMap[cat] = [];
+        categoryMap[cat].push(file);
+      }
+
+      const categories = Object.entries(categoryMap).map(([name, files]) => ({
+        name,
+        risk: riskMap[name] ?? "LOW",
+        files,
+        count: files.length,
+      }));
+
+      let sonanceFiles: string[] = [];
+      try {
+        const manifest = readFileSync(join(cwd, "SONANCE_FORK.md"), "utf-8");
+        const matches = manifest.match(/\| `([^`]+)`/g);
+        if (matches) {
+          sonanceFiles = matches.map((m) => m.replace(/\| `|`/g, "").trim());
+        }
+      } catch {}
+
+      const conflicts = sonanceFiles.filter((sf) => changedFiles.includes(sf));
+      const newTools = changedFiles.filter((f) => /^src\/agents\/tools\/.*-tool\.ts$/.test(f));
+
+      respond(true, { commits, categories, conflicts, newTools });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
 }
 
 export default cortexPlugin;

@@ -42,6 +42,21 @@ export type SonanceCortexConfig = {
    * Example: "http://localhost:8000/mcp/cortex"
    */
   mcpBridgeUrl: string;
+  /**
+   * Supabase project URL for direct database access (org-wide usage queries).
+   * Example: "https://xxxx.supabase.co"
+   */
+  supabaseUrl: string;
+  /**
+   * Supabase service-role key (JWT) for bypassing RLS to aggregate usage
+   * across all users. Required for org-wide dashboard data.
+   */
+  supabaseServiceRoleKey: string;
+  /**
+   * Supabase JWT secret for minting short-lived tokens.
+   * Used to sign JWTs that authenticate against Cortex dashboard endpoints.
+   */
+  supabaseJwtSecret: string;
   audit: {
     enabled: boolean;
     batchSize: number;
@@ -115,6 +130,18 @@ export function parseCortexConfig(raw: unknown): SonanceCortexConfig {
       typeof obj.mcpBridgeUrl === "string" && obj.mcpBridgeUrl.trim()
         ? obj.mcpBridgeUrl.trim()
         : (process.env.SONANCE_MCP_BRIDGE_URL ?? ""),
+    supabaseUrl:
+      typeof obj.supabaseUrl === "string" && obj.supabaseUrl.trim()
+        ? obj.supabaseUrl.trim()
+        : (process.env.SONANCE_SUPABASE_URL ?? ""),
+    supabaseServiceRoleKey:
+      typeof obj.supabaseServiceRoleKey === "string" && obj.supabaseServiceRoleKey.trim()
+        ? obj.supabaseServiceRoleKey.trim()
+        : (process.env.SONANCE_SUPABASE_SERVICE_ROLE_KEY ?? ""),
+    supabaseJwtSecret:
+      typeof obj.supabaseJwtSecret === "string" && obj.supabaseJwtSecret.trim()
+        ? obj.supabaseJwtSecret.trim()
+        : (process.env.SONANCE_SUPABASE_JWT_SECRET ?? ""),
     audit: {
       enabled: typeof audit.enabled === "boolean" ? audit.enabled : true,
       batchSize: typeof audit.batchSize === "number" ? audit.batchSize : 50,

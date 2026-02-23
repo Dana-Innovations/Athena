@@ -295,6 +295,48 @@ export class OpenClawApp extends LitElement {
   @state() apolloError: string | null = null;
   @state() apolloStatus: import("./controllers/apollo.js").ApolloStatusResult | null = null;
   @state() apolloUsage: import("./controllers/apollo.js").ApolloUsageResult | null = null;
+  @state() apolloUserFilter = "";
+  @state() apolloTab: "users" | "requests" | "models" = "users";
+  @state() apolloUserSort: import("./controllers/apollo.js").ApolloUserSortField = "cost";
+  @state() apolloUserSortDir: "asc" | "desc" = "desc";
+
+  @state() toolWhitelistLoading = false;
+  @state() toolWhitelistError: string | null = null;
+  @state() toolWhitelistData: import("./controllers/tool-whitelist.js").ToolWhitelistResult | null =
+    null;
+  @state() toolWhitelistFilter: "all" | "allowed" | "denied" | "unreviewed" = "all";
+  @state() whitelistTab: import("./controllers/tool-whitelist.js").WhitelistTab = "tools";
+  @state() whitelistMcpLoading = false;
+  @state() whitelistMcpError: string | null = null;
+  @state() whitelistMcpData: import("./controllers/tool-whitelist.js").McpAuditResult | null = null;
+  @state() whitelistSkillsLoading = false;
+  @state() whitelistSkillsError: string | null = null;
+  @state() whitelistSkillsData: import("./controllers/tool-whitelist.js").SkillsAuditResult | null =
+    null;
+  @state() whitelistNodesLoading = false;
+  @state() whitelistNodesError: string | null = null;
+  @state() whitelistNodesData: import("./controllers/tool-whitelist.js").NodesAuditResult | null =
+    null;
+  @state() whitelistAgentsLoading = false;
+  @state() whitelistAgentsError: string | null = null;
+  @state() whitelistAgentsData: import("./controllers/tool-whitelist.js").AgentsAuditResult | null =
+    null;
+  @state() whitelistBusy: string | null = null;
+  @state() whitelistRestartNeeded = false;
+  @state() whitelistColumnFilters: Record<string, string[]> = {};
+  @state() whitelistFilterOpen: string | null = null;
+  @state() whitelistFilterSearch = "";
+  @state() whitelistSearch = "";
+  @state() whitelistCollapsed: Record<string, boolean> = {};
+
+  @state() upstreamSyncLoading = false;
+  @state() upstreamSyncError: string | null = null;
+  @state() upstreamSyncStatus:
+    | import("./controllers/upstream-sync.js").UpstreamStatusResult
+    | null = null;
+  @state() upstreamSyncCommits:
+    | import("./controllers/upstream-sync.js").UpstreamCommitsResult
+    | null = null;
 
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];

@@ -8,7 +8,7 @@ export const TAB_GROUPS = [
     tabs: ["overview", "channels", "instances", "sessions", "usage", "cron"],
   },
   { label: "agent", tabs: ["agents", "skills", "nodes"] },
-  { label: "sonance", tabs: ["apollo"] },
+  { label: "sonance", tabs: ["apollo", "whitelist", "upstream-sync"] },
   { label: "settings", tabs: ["config", "debug", "logs"] },
 ] as const;
 
@@ -23,6 +23,8 @@ export type Tab =
   | "skills"
   | "nodes"
   | "apollo"
+  | "whitelist"
+  | "upstream-sync"
   | "chat"
   | "config"
   | "debug"
@@ -39,6 +41,8 @@ const TAB_PATHS: Record<Tab, string> = {
   skills: "/skills",
   nodes: "/nodes",
   apollo: "/apollo",
+  whitelist: "/whitelist",
+  "upstream-sync": "/upstream-sync",
   chat: "/chat",
   config: "/config",
   debug: "/debug",
@@ -150,6 +154,10 @@ export function iconForTab(tab: Tab): IconName {
       return "monitor";
     case "apollo":
       return "barChart";
+    case "whitelist":
+      return "zap";
+    case "upstream-sync":
+      return "puzzle";
     case "config":
       return "settings";
     case "debug":
