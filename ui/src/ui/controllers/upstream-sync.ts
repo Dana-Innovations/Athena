@@ -2,6 +2,7 @@
  * Upstream Sync Controller
  *
  * Fetches upstream change detection data via sonance.upstream.* gateway methods.
+ * Supports diff browsing, AI-powered analysis, and selective cherry-pick apply.
  */
 
 export type UpstreamStatusResult = {
@@ -32,11 +33,79 @@ export type UpstreamCommitsResult = {
   newTools: string[];
 };
 
+export type FileDiff = {
+  file: string;
+  status: string;
+  hunks: string;
+  isBinary: boolean;
+};
+
+export type DiffResult = {
+  diffs: FileDiff[];
+};
+
+export type UpdateType =
+  | "feature"
+  | "bugfix"
+  | "security"
+  | "performance"
+  | "ui"
+  | "docs"
+  | "maintenance";
+export type Usefulness = "high" | "medium" | "low";
+
+export type SafeCommitAnalysis = {
+  hash: string;
+  message: string;
+  reason: string;
+  plainSummary?: string;
+  type?: UpdateType;
+  usefulness?: Usefulness;
+};
+
+export type RiskyCommitAnalysis = {
+  hash: string;
+  message: string;
+  conflictFiles: string[];
+  riskLevel: "low" | "medium" | "high";
+  aiSummary: string;
+  plainSummary?: string;
+  type?: UpdateType;
+  usefulness?: Usefulness;
+};
+
+export type AnalysisResult = {
+  safeCommits: SafeCommitAnalysis[];
+  riskyCommits: RiskyCommitAnalysis[];
+  overallAssessment: string;
+  recommendedOrder: string[];
+};
+
+export type ApplyCommitResult = {
+  hash: string;
+  status: "applied" | "conflict" | "failed";
+  conflictFiles?: string[];
+  error?: string;
+};
+
+export type ApplyResult = {
+  branch: string;
+  results: ApplyCommitResult[];
+  dryRun: boolean;
+};
+
 export type UpstreamSyncState = {
   upstreamSyncLoading: boolean;
   upstreamSyncError: string | null;
   upstreamSyncStatus: UpstreamStatusResult | null;
   upstreamSyncCommits: UpstreamCommitsResult | null;
+  upstreamSelectedCommits: Set<string>;
+  upstreamExpandedCommit: string | null;
+  upstreamDiffCache: Map<string, DiffResult>;
+  upstreamAnalysis: AnalysisResult | null;
+  upstreamAnalysisLoading: boolean;
+  upstreamApplyResult: ApplyResult | null;
+  upstreamApplyLoading: boolean;
   client: {
     request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   } | null;
@@ -79,5 +148,73 @@ export async function loadUpstreamStatus(
     state.upstreamSyncError = String(err);
   } finally {
     state.upstreamSyncLoading = false;
+  }
+}
+
+export async function loadCommitDiff(
+  state: UpstreamSyncState,
+  commit: string,
+): Promise<DiffResult | null> {
+  if (!state.client) {
+    return null;
+  }
+
+  const cached = state.upstreamDiffCache.get(commit);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const result = (await state.client.request("sonance.upstream.diff", { commit })) as DiffResult;
+    state.upstreamDiffCache.set(commit, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+export async function analyzeCommits(state: UpstreamSyncState): Promise<void> {
+  if (!state.client || state.upstreamSelectedCommits.size === 0) {
+    return;
+  }
+
+  state.upstreamAnalysisLoading = true;
+  state.upstreamAnalysis = null;
+
+  try {
+    const commits = [...state.upstreamSelectedCommits];
+    const result = (await state.client.request("sonance.upstream.analyze", {
+      commits,
+    })) as AnalysisResult;
+    state.upstreamAnalysis = result;
+  } catch (err) {
+    state.upstreamSyncError = `Analysis failed: ${String(err)}`;
+  } finally {
+    state.upstreamAnalysisLoading = false;
+  }
+}
+
+export async function applyCommits(
+  state: UpstreamSyncState,
+  opts: { commits: string[]; dryRun?: boolean; branch?: string },
+): Promise<void> {
+  if (!state.client || opts.commits.length === 0) {
+    return;
+  }
+
+  state.upstreamApplyLoading = true;
+  state.upstreamApplyResult = null;
+
+  try {
+    const result = (await state.client.request("sonance.upstream.apply", {
+      commits: opts.commits,
+      dryRun: opts.dryRun ?? true,
+      branch: opts.branch,
+    })) as ApplyResult;
+    state.upstreamApplyResult = result;
+  } catch (err) {
+    state.upstreamSyncError = `Apply failed: ${String(err)}`;
+  } finally {
+    state.upstreamApplyLoading = false;
   }
 }

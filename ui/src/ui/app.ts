@@ -337,6 +337,14 @@ export class OpenClawApp extends LitElement {
   @state() upstreamSyncCommits:
     | import("./controllers/upstream-sync.js").UpstreamCommitsResult
     | null = null;
+  @state() upstreamSelectedCommits: Set<string> = new Set();
+  @state() upstreamExpandedCommit: string | null = null;
+  @state() upstreamDiffCache: Map<string, import("./controllers/upstream-sync.js").DiffResult> =
+    new Map();
+  @state() upstreamAnalysis: import("./controllers/upstream-sync.js").AnalysisResult | null = null;
+  @state() upstreamAnalysisLoading = false;
+  @state() upstreamApplyResult: import("./controllers/upstream-sync.js").ApplyResult | null = null;
+  @state() upstreamApplyLoading = false;
 
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];

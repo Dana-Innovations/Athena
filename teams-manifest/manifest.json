@@ -1,0 +1,36 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "70eb4703-0c1d-405b-be9a-5849ec6071ae",
+  "developer": {
+    "name": "Athena",
+    "websiteUrl": "https://github.com/Dana-Innovations/Athena",
+    "privacyUrl": "https://github.com/Dana-Innovations/Athena",
+    "termsOfUseUrl": "https://github.com/Dana-Innovations/Athena"
+  },
+  "name": {
+    "short": "Athena Agent",
+    "full": "Athena AI Agent"
+  },
+  "description": {
+    "short": "Athena AI assistant",
+    "full": "Athena is a personal AI assistant that you can chat with directly in Microsoft Teams."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#4F46E5",
+  "bots": [
+    {
+      "botId": "70eb4703-0c1d-405b-be9a-5849ec6071ae",
+      "scopes": ["personal"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": []
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": []
+}

@@ -17,7 +17,13 @@ import type {
   AgentsAuditResult,
   WhitelistTab,
 } from "./controllers/tool-whitelist.ts";
-import type { UpstreamStatusResult, UpstreamCommitsResult } from "./controllers/upstream-sync.ts";
+import type {
+  UpstreamStatusResult,
+  UpstreamCommitsResult,
+  DiffResult,
+  AnalysisResult,
+  ApplyResult,
+} from "./controllers/upstream-sync.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
@@ -234,6 +240,13 @@ export type AppViewState = {
   upstreamSyncError: string | null;
   upstreamSyncStatus: UpstreamStatusResult | null;
   upstreamSyncCommits: UpstreamCommitsResult | null;
+  upstreamSelectedCommits: Set<string>;
+  upstreamExpandedCommit: string | null;
+  upstreamDiffCache: Map<string, DiffResult>;
+  upstreamAnalysis: AnalysisResult | null;
+  upstreamAnalysisLoading: boolean;
+  upstreamApplyResult: ApplyResult | null;
+  upstreamApplyLoading: boolean;
   cronLoading: boolean;
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;

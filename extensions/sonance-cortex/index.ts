@@ -206,7 +206,7 @@ const cortexPlugin = {
               description: tool.description,
               parameters: Type.Object(
                 Object.fromEntries(
-                  Object.entries(tool.parameters).map(([key, schema]) => [
+                  Object.entries(tool.parameters ?? {}).map(([key, schema]) => [
                     key,
                     schema as ReturnType<typeof Type.Any>,
                   ]),
@@ -770,24 +770,26 @@ function syncMcpAgent(
 
     const toolNames = tools.map((t) => "cortex_" + mcpName + "__" + t.name);
 
-    // Check if agent already exists with the same tool set — skip the config
-    // write to avoid triggering the config-watcher restart loop.
+    // Skip the config write when the on-disk agent already matches or is a
+    // superset of the tools being synced. This avoids triggering the
+    // config-watcher restart loop when the same MCP is discovered by both
+    // the CompositeMCPBridge (fewer tools) and the stdio MCP (full set).
     const existing = agentList.find((a) => a.id === agentId);
     if (existing) {
       const existingAllow = (existing.tools as Record<string, unknown> | undefined)?.allow;
-      if (
-        Array.isArray(existingAllow) &&
-        existingAllow.length === toolNames.length &&
-        existingAllow.every((n, i) => n === toolNames[i])
-      ) {
-        logger.info(
-          "[sonance-cortex] agent sync: '" +
-            agentId +
-            "' already up to date (" +
-            toolNames.length +
-            " tools)",
-        );
-        return;
+      if (Array.isArray(existingAllow)) {
+        const existingSet = new Set(existingAllow as string[]);
+        const allPresent = toolNames.every((n) => existingSet.has(n));
+        if (allPresent && existingAllow.length >= toolNames.length) {
+          logger.info(
+            "[sonance-cortex] agent sync: '" +
+              agentId +
+              "' already up to date (" +
+              toolNames.length +
+              " tools)",
+          );
+          return;
+        }
       }
       if (!existing.tools || typeof existing.tools !== "object") {
         existing.tools = {};
@@ -1269,6 +1271,445 @@ function registerLocalSonanceMethods(api: OpenClawPluginApi): void {
       respond(false, { error: String(err) });
     }
   });
+
+  // -- Upstream Diff (per-commit or per-file diff content) ------------------
+  api.registerGatewayMethod("sonance.upstream.diff", async ({ params, respond }) => {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+      const cwd = process.cwd();
+
+      const commit = params?.commit as string | undefined;
+      const file = params?.file as string | undefined;
+
+      let rawDiff = "";
+
+      if (commit) {
+        // Show diff for a specific commit
+        const res = await execFileAsync(
+          "git",
+          ["show", commit, "--format=", "--patch", "--diff-filter=ACMRD"],
+          { cwd, timeout: 15_000, maxBuffer: 5 * 1024 * 1024 },
+        ).catch(() => ({ stdout: "" }));
+        rawDiff = res.stdout;
+      } else if (file) {
+        // Show cumulative diff for a specific file between merge-base and upstream/main
+        const baseRes = await execFileAsync("git", ["merge-base", "HEAD", "upstream/main"], {
+          cwd,
+          timeout: 5_000,
+        }).catch(() => ({ stdout: "" }));
+        const mergeBase = baseRes.stdout.trim();
+        if (!mergeBase) {
+          respond(true, { diffs: [] });
+          return;
+        }
+        const res = await execFileAsync("git", ["diff", mergeBase, "upstream/main", "--", file], {
+          cwd,
+          timeout: 15_000,
+          maxBuffer: 5 * 1024 * 1024,
+        }).catch(() => ({ stdout: "" }));
+        rawDiff = res.stdout;
+      } else {
+        respond(false, { error: "Provide either 'commit' or 'file' parameter" });
+        return;
+      }
+
+      // Parse unified diff into structured hunks per file
+      const diffs = parseUnifiedDiff(rawDiff);
+      respond(true, { diffs });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  // -- Upstream Analyze (AI-powered change analysis) ------------------------
+  api.registerGatewayMethod("sonance.upstream.analyze", async ({ params, respond }) => {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const execFileAsync = promisify(execFile);
+      const cwd = process.cwd();
+
+      const commitHashes = params?.commits as string[] | undefined;
+      if (!commitHashes || commitHashes.length === 0) {
+        respond(false, { error: "Provide 'commits' array of commit hashes to analyze" });
+        return;
+      }
+
+      // Read fork manifest to know Athena-modified files
+      let sonanceFiles: string[] = [];
+      try {
+        const manifest = readFileSync(join(cwd, "SONANCE_FORK.md"), "utf-8");
+        const matches = manifest.match(/\| `([^`]+)`/g);
+        if (matches) {
+          sonanceFiles = matches.map((m) => m.replace(/\| `|`/g, "").trim());
+        }
+      } catch {}
+
+      // Gather per-commit diffs
+      const commitDetails: Array<{ hash: string; message: string; diff: string; files: string[] }> =
+        [];
+      for (const hash of commitHashes.slice(0, 20)) {
+        const [showRes, filesRes] = await Promise.all([
+          execFileAsync("git", ["show", hash, "--format=%s", "--patch"], {
+            cwd,
+            timeout: 10_000,
+            maxBuffer: 2 * 1024 * 1024,
+          }).catch(() => ({ stdout: "" })),
+          execFileAsync("git", ["diff-tree", "--no-commit-id", "-r", "--name-only", hash], {
+            cwd,
+            timeout: 5_000,
+          }).catch(() => ({ stdout: "" })),
+        ]);
+        const lines = showRes.stdout.split("\n");
+        const message = lines[0] ?? "";
+        const diff = lines.slice(1).join("\n").trim();
+        const files = filesRes.stdout.trim().split("\n").filter(Boolean);
+        commitDetails.push({ hash, message, diff: diff.slice(0, 8000), files });
+      }
+
+      // Build the LLM prompt
+      const sonanceFileList =
+        sonanceFiles.length > 0
+          ? sonanceFiles.map((f) => `  - ${f}`).join("\n")
+          : "  (no Athena-modified files found in SONANCE_FORK.md)";
+
+      const commitSections = commitDetails
+        .map(
+          (c) =>
+            `### Commit ${c.hash}: ${c.message}\nFiles changed: ${c.files.join(", ")}\n\`\`\`diff\n${c.diff}\n\`\`\``,
+        )
+        .join("\n\n");
+
+      const prompt = `You are a helpful assistant explaining software updates to an admin who manages "Athena" — a customized version of a program called OpenClaw. Your job is to read the code changes and explain them in plain, non-technical language so the admin can decide which updates to install.
+
+## What is Athena?
+
+Athena is a customized fork of OpenClaw. The admin's team has modified these specific files to add their own features (security lockdown, Cortex integration, Apollo proxy, SSO login):
+${sonanceFileList}
+
+Any update that touches one of the files listed above needs extra care because it could conflict with Athena's customizations. Updates that DON'T touch those files are safe to install.
+
+## Updates to Review
+
+${commitSections}
+
+## What I Need From You
+
+For each update, tell me:
+1. **What it does** — explain in 1-2 plain English sentences what this update changes or improves. Avoid jargon. Think "what would a product manager say?"
+2. **Why it matters** — is this a bug fix, a new feature, a performance improvement, a security patch, or just cleanup/maintenance?
+3. **Type** — classify as exactly one of: "feature", "bugfix", "security", "performance", "ui", "docs", "maintenance"
+4. **Usefulness** — rate "high", "medium", or "low" based on how valuable this update is likely to be for a team using OpenClaw as an AI assistant platform
+5. **Safe to install?** — "yes" if it doesn't touch any Athena-customized files, "needs-review" if it does touch them (with explanation of what could go wrong)
+6. **Risk level** — for "needs-review" items only: "low", "medium", or "high"
+
+Also provide:
+- An **overall summary** in 2-3 plain English sentences: what's the big picture of these updates? Are they worth installing?
+- A **recommended install order** (safest updates first)
+
+Respond with ONLY valid JSON (no markdown fences):
+{
+  "safeCommits": [{"hash": "...", "message": "...", "reason": "...", "plainSummary": "What this update does in plain English", "type": "feature|bugfix|security|performance|ui|docs|maintenance", "usefulness": "high|medium|low"}],
+  "riskyCommits": [{"hash": "...", "message": "...", "conflictFiles": ["..."], "riskLevel": "low|medium|high", "aiSummary": "Plain English explanation of what could go wrong", "plainSummary": "What this update does in plain English", "type": "feature|bugfix|security|performance|ui|docs|maintenance", "usefulness": "high|medium|low"}],
+  "overallAssessment": "Plain English summary of all updates and whether they're worth installing",
+  "recommendedOrder": ["hash1", "hash2"]
+}`;
+
+      // Call Claude via completeSimple
+      let aiResult: Record<string, unknown>;
+      try {
+        const { completeSimple } = await import("@mariozechner/pi-ai");
+        const { resolveModel } = await import("../../src/agents/pi-embedded-runner/model.js");
+        const { resolveApiKeyForProvider, requireApiKey } =
+          await import("../../src/agents/model-auth.js");
+
+        const resolved = resolveModel(
+          "anthropic",
+          "claude-sonnet-4-20250514",
+          undefined,
+          api.config,
+        );
+        if (!resolved.model) {
+          respond(false, {
+            error: "Could not resolve Claude model. Check your Anthropic API key configuration.",
+          });
+          return;
+        }
+
+        const auth = await resolveApiKeyForProvider({ provider: "anthropic", cfg: api.config });
+        const apiKey = requireApiKey(auth, "anthropic");
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120_000);
+        try {
+          const res = await completeSimple(
+            resolved.model,
+            { messages: [{ role: "user" as const, content: prompt, timestamp: Date.now() }] },
+            { apiKey, maxTokens: 4096, temperature: 0.2, signal: controller.signal },
+          );
+
+          const text = res.content
+            .filter((block: { type: string }) => block.type === "text")
+            .map((block: { type: string; text: string }) => block.text.trim())
+            .join(" ");
+
+          // Strip markdown fences if present
+          const cleaned = text
+            .replace(/^```json?\s*\n?/i, "")
+            .replace(/\n?```\s*$/i, "")
+            .trim();
+          aiResult = JSON.parse(cleaned);
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch (llmErr) {
+        // If LLM call fails, fall back to heuristic analysis with human-readable fields
+        const safeCommits: Array<Record<string, unknown>> = [];
+        const riskyCommits: Array<Record<string, unknown>> = [];
+
+        for (const c of commitDetails) {
+          const overlapping = c.files.filter((f) => sonanceFiles.includes(f));
+          if (overlapping.length === 0) {
+            safeCommits.push({
+              hash: c.hash,
+              message: c.message,
+              reason: "Doesn't touch any files that Athena has customized",
+              plainSummary: c.message,
+              type: "maintenance",
+              usefulness: "medium",
+            });
+          } else {
+            riskyCommits.push({
+              hash: c.hash,
+              message: c.message,
+              conflictFiles: overlapping,
+              riskLevel: overlapping.length > 2 ? "high" : "medium",
+              aiSummary: `This update changes ${overlapping.length} file(s) that Athena has customized. Installing it could overwrite Athena's changes. AI-powered analysis wasn't available to give more detail.`,
+              plainSummary: c.message,
+              type: "maintenance",
+              usefulness: "medium",
+            });
+          }
+        }
+
+        aiResult = {
+          safeCommits,
+          riskyCommits,
+          overallAssessment: `We couldn't reach the AI assistant, so this is a basic check. ${safeCommits.length} update(s) look safe to install. ${riskyCommits.length} update(s) touch files Athena has customized and need manual review.`,
+          recommendedOrder: safeCommits.map((c) => c.hash),
+        };
+      }
+
+      respond(true, aiResult);
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  // -- Upstream Apply (cherry-pick onto integration branch) -----------------
+  api.registerGatewayMethod("sonance.upstream.apply", async ({ params, respond }) => {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const { writeFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const execFileAsync = promisify(execFile);
+      const cwd = process.cwd();
+
+      const commitHashes = params?.commits as string[] | undefined;
+      const dryRun = params?.dryRun !== false; // default true
+      const branchName =
+        (params?.branch as string) ||
+        `athena/upstream-sync-${new Date().toISOString().slice(0, 10)}`;
+      const resolutions = (params?.resolutions ?? {}) as Record<string, string>;
+
+      if (!commitHashes || commitHashes.length === 0) {
+        respond(false, { error: "Provide 'commits' array of commit hashes to apply" });
+        return;
+      }
+
+      // Record original branch so we can return to it
+      const origBranch = (
+        await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd,
+          timeout: 5_000,
+        })
+      ).stdout.trim();
+
+      if (dryRun) {
+        // Dry run: check each commit for conflicts without modifying anything
+        const results: Array<{
+          hash: string;
+          status: string;
+          conflictFiles?: string[];
+        }> = [];
+
+        for (const hash of commitHashes) {
+          const filesRes = await execFileAsync(
+            "git",
+            ["diff-tree", "--no-commit-id", "-r", "--name-only", hash],
+            { cwd, timeout: 5_000 },
+          ).catch(() => ({ stdout: "" }));
+          const files = filesRes.stdout.trim().split("\n").filter(Boolean);
+
+          // Check if any file has local modifications compared to the merge base
+          let hasConflict = false;
+          const conflictFiles: string[] = [];
+          const baseRes = await execFileAsync("git", ["merge-base", "HEAD", "upstream/main"], {
+            cwd,
+            timeout: 5_000,
+          }).catch(() => ({ stdout: "" }));
+          const mergeBase = baseRes.stdout.trim();
+
+          if (mergeBase) {
+            for (const file of files) {
+              const localDiff = await execFileAsync(
+                "git",
+                ["diff", "--name-only", mergeBase, "HEAD", "--", file],
+                { cwd, timeout: 5_000 },
+              ).catch(() => ({ stdout: "" }));
+              if (localDiff.stdout.trim()) {
+                hasConflict = true;
+                conflictFiles.push(file);
+              }
+            }
+          }
+
+          results.push({
+            hash,
+            status: hasConflict ? "conflict" : "applied",
+            ...(conflictFiles.length > 0 ? { conflictFiles } : {}),
+          });
+        }
+
+        respond(true, { branch: branchName, results, dryRun: true });
+        return;
+      }
+
+      // Actual apply: create branch and cherry-pick
+      // Check if branch already exists
+      const branchExists = await execFileAsync("git", ["rev-parse", "--verify", branchName], {
+        cwd,
+        timeout: 5_000,
+      })
+        .then(() => true)
+        .catch(() => false);
+
+      if (branchExists) {
+        await execFileAsync("git", ["checkout", branchName], { cwd, timeout: 5_000 });
+      } else {
+        await execFileAsync("git", ["checkout", "-b", branchName], { cwd, timeout: 5_000 });
+      }
+
+      const results: Array<{
+        hash: string;
+        status: string;
+        conflictFiles?: string[];
+        error?: string;
+      }> = [];
+
+      for (const hash of commitHashes) {
+        try {
+          await execFileAsync("git", ["cherry-pick", "--no-commit", hash], {
+            cwd,
+            timeout: 30_000,
+          });
+
+          // Apply any pre-resolved conflict files
+          for (const [filePath, content] of Object.entries(resolutions)) {
+            try {
+              writeFileSync(join(cwd, filePath), content, "utf-8");
+              await execFileAsync("git", ["add", filePath], { cwd, timeout: 5_000 });
+            } catch {}
+          }
+
+          await execFileAsync(
+            "git",
+            ["commit", "--no-edit", "-m", `upstream: cherry-pick ${hash}`],
+            { cwd, timeout: 10_000 },
+          );
+
+          results.push({ hash, status: "applied" });
+        } catch (cpErr) {
+          // Cherry-pick failed — check for conflicts
+          const statusRes = await execFileAsync("git", ["diff", "--name-only", "--diff-filter=U"], {
+            cwd,
+            timeout: 5_000,
+          }).catch(() => ({ stdout: "" }));
+          const conflictFiles = statusRes.stdout.trim().split("\n").filter(Boolean);
+
+          // Check if we have resolutions for all conflict files
+          const allResolved = conflictFiles.every((f) => resolutions[f]);
+          if (allResolved && conflictFiles.length > 0) {
+            for (const filePath of conflictFiles) {
+              writeFileSync(join(cwd, filePath), resolutions[filePath], "utf-8");
+              await execFileAsync("git", ["add", filePath], { cwd, timeout: 5_000 });
+            }
+            await execFileAsync(
+              "git",
+              ["commit", "--no-edit", "-m", `upstream: cherry-pick ${hash} (resolved)`],
+              { cwd, timeout: 10_000 },
+            );
+            results.push({ hash, status: "applied" });
+          } else {
+            // Abort this cherry-pick
+            await execFileAsync("git", ["cherry-pick", "--abort"], { cwd, timeout: 5_000 }).catch(
+              () => {},
+            );
+            results.push({
+              hash,
+              status: "conflict",
+              conflictFiles,
+              error: String(cpErr),
+            });
+          }
+        }
+      }
+
+      // Return to original branch
+      await execFileAsync("git", ["checkout", origBranch], { cwd, timeout: 5_000 }).catch(() => {});
+
+      respond(true, { branch: branchName, results, dryRun: false });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+}
+
+/** Parse unified diff output into structured per-file hunks. */
+function parseUnifiedDiff(raw: string): Array<{
+  file: string;
+  status: string;
+  hunks: string;
+  isBinary: boolean;
+}> {
+  if (!raw.trim()) return [];
+  const files: Array<{ file: string; status: string; hunks: string; isBinary: boolean }> = [];
+  const fileSections = raw.split(/^diff --git /m).filter(Boolean);
+
+  for (const section of fileSections) {
+    const lines = section.split("\n");
+    const headerMatch = lines[0]?.match(/a\/(.+?) b\/(.+)/);
+    const file = headerMatch?.[2] ?? headerMatch?.[1] ?? "unknown";
+    const isBinary = section.includes("Binary files");
+
+    let status = "modified";
+    if (section.includes("new file mode")) status = "added";
+    else if (section.includes("deleted file mode")) status = "deleted";
+    else if (section.includes("rename from")) status = "renamed";
+
+    // Extract hunk content (everything from first @@ onward), capped for sanity
+    const hunkStart = section.indexOf("@@");
+    const hunks = hunkStart >= 0 ? section.slice(hunkStart).slice(0, 5000) : "";
+
+    files.push({ file, status, hunks, isBinary });
+  }
+
+  return files;
 }
 
 export default cortexPlugin;

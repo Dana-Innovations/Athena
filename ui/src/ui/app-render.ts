@@ -65,7 +65,12 @@ import {
   toggleNodeWhitelist,
   type WhitelistTab,
 } from "./controllers/tool-whitelist.ts";
-import { loadUpstreamStatus } from "./controllers/upstream-sync.ts";
+import {
+  loadUpstreamStatus,
+  loadCommitDiff,
+  analyzeCommits,
+  applyCommits,
+} from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
 import { normalizeBasePath, TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
 import { renderAgents } from "./views/agents.ts";
@@ -477,8 +482,51 @@ export function renderApp(state: AppViewState) {
                 error: state.upstreamSyncError,
                 status: state.upstreamSyncStatus,
                 commits: state.upstreamSyncCommits,
+                selectedCommits: state.upstreamSelectedCommits,
+                expandedCommit: state.upstreamExpandedCommit,
+                diffCache: state.upstreamDiffCache,
+                analysis: state.upstreamAnalysis,
+                analysisLoading: state.upstreamAnalysisLoading,
+                applyResult: state.upstreamApplyResult,
+                applyLoading: state.upstreamApplyLoading,
                 onRefresh: () => loadUpstreamStatus(state),
                 onFetch: () => loadUpstreamStatus(state, { fetch: true }),
+                onToggleCommit: (hash: string) => {
+                  const next = new Set(state.upstreamSelectedCommits);
+                  if (next.has(hash)) {
+                    next.delete(hash);
+                  } else {
+                    next.add(hash);
+                  }
+                  state.upstreamSelectedCommits = next;
+                },
+                onSelectAll: () => {
+                  const all = new Set(
+                    (state.upstreamSyncCommits?.commits ?? []).map((c) => c.hash),
+                  );
+                  state.upstreamSelectedCommits = all;
+                },
+                onDeselectAll: () => {
+                  state.upstreamSelectedCommits = new Set();
+                },
+                onExpandCommit: (hash: string | null) => {
+                  state.upstreamExpandedCommit = hash;
+                },
+                onLoadDiff: (hash: string) => {
+                  void loadCommitDiff(state, hash).then(() => {
+                    // Trigger re-render by updating the cache reference
+                    state.upstreamDiffCache = new Map(state.upstreamDiffCache);
+                  });
+                },
+                onAnalyze: () => void analyzeCommits(state),
+                onApply: (opts) =>
+                  void applyCommits(state, {
+                    commits: opts.commits,
+                    dryRun: opts.dryRun,
+                  }),
+                onDismissApplyResult: () => {
+                  state.upstreamApplyResult = null;
+                },
               })
             : nothing
         }

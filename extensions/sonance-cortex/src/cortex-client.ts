@@ -242,7 +242,11 @@ export class CortexClient {
 
   /** Discover available tools for the current gateway/tenant. */
   async listTools(): Promise<CortexTool[]> {
-    return this.request<CortexTool[]>("/api/v1/tools/schemas");
+    const raw = await this.request<CortexTool[] | { tools: CortexTool[] }>("/api/v1/tools/schemas");
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object" && "tools" in raw && Array.isArray(raw.tools))
+      return raw.tools;
+    return [];
   }
 
   /**
