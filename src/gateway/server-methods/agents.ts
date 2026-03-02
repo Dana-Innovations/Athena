@@ -27,6 +27,7 @@ import {
 } from "../../commands/agents.config.js";
 import { loadConfig, writeConfigFile } from "../../config/config.js";
 import { resolveSessionTranscriptsDirForAgent } from "../../config/sessions/paths.js";
+import { fetchAgentFiles, upsertAgentFile } from "../../infra/supabase-file-sync.js";
 import { DEFAULT_AGENT_ID, normalizeAgentId } from "../../routing/session-key.js";
 import { resolveUserPath } from "../../utils.js";
 import {
@@ -453,7 +454,17 @@ export const agentsHandlers: GatewayRequestHandlers = {
     }
     const { agentId, workspaceDir, name } = resolved;
     const filePath = path.join(workspaceDir, name);
-    const meta = await statFile(filePath);
+    let meta = await statFile(filePath);
+    if (!meta) {
+      // Attempt lazy restore from Supabase backup
+      const remote = await fetchAgentFiles(agentId).catch(() => []);
+      const match = remote.find((f) => f.file_name === name);
+      if (match) {
+        await fs.mkdir(workspaceDir, { recursive: true });
+        await fs.writeFile(filePath, match.content, "utf-8");
+        meta = await statFile(filePath);
+      }
+    }
     if (!meta) {
       respond(
         true,
@@ -507,6 +518,8 @@ export const agentsHandlers: GatewayRequestHandlers = {
     const filePath = path.join(workspaceDir, name);
     const content = String(params.content ?? "");
     await fs.writeFile(filePath, content, "utf-8");
+    // Fire-and-forget sync to Supabase backup (no-op if not configured)
+    upsertAgentFile(agentId, name, content).catch(() => {});
     const meta = await statFile(filePath);
     respond(
       true,

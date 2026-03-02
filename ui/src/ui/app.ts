@@ -213,6 +213,7 @@ export class OpenClawApp extends LitElement {
   @state() agentsSelectedId: string | null = null;
   @state() agentsPanel: "overview" | "files" | "tools" | "skills" | "channels" | "cron" =
     "overview";
+  @state() agentsSidebarSearch = "";
   @state() agentFilesLoading = false;
   @state() agentFilesError: string | null = null;
   @state() agentFilesList: AgentsFilesListResult | null = null;
@@ -227,6 +228,10 @@ export class OpenClawApp extends LitElement {
   @state() agentSkillsError: string | null = null;
   @state() agentSkillsReport: SkillStatusReport | null = null;
   @state() agentSkillsAgentId: string | null = null;
+  @state() cortexToolGroups: import("./views/agents-utils.js").PluginToolGroup[] | null = null;
+  @state() cortexToolsLoaded = false;
+  @state() cortexConnections: import("./controllers/agents.js").MCPConnection[] | null = null;
+  @state() cortexConnectionsLoaded = false;
 
   @state() sessionsLoading = false;
   @state() sessionsResult: SessionsListResult | null = null;
@@ -296,6 +301,22 @@ export class OpenClawApp extends LitElement {
   @state() apolloStatus: import("./controllers/apollo.js").ApolloStatusResult | null = null;
   @state() apolloUsage: import("./controllers/apollo.js").ApolloUsageResult | null = null;
 
+  @state() adminPanel: "users" | "usage" | "mcp" = "users";
+  @state() adminLoading = false;
+  @state() adminError: string | null = null;
+  @state() adminUsers: import("./types-admin.js").AdminUser[] | null = null;
+  @state() adminUsersFilter = "";
+  @state() adminUsageSummary: import("./types-admin.js").AdminUsageSummary | null = null;
+  @state() adminUsageDetails: import("./types-admin.js").AdminUsageDetail[] | null = null;
+  @state() adminMcps: import("./types-admin.js").AdminMcpInfo[] | null = null;
+  @state() adminMcpAccess: import("./types-admin.js").AdminMcpAccessEntry[] | null = null;
+
+  @state() dashboardLoading = false;
+  @state() dashboardError: string | null = null;
+  @state() dashboardWidgets: Record<string, import("./types-dashboard.js").DashboardWidgetData> =
+    {};
+  @state() dashboardLastRefreshAt: number | null = null;
+
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];
   @state() cronStatus: CronStatus | null = null;
@@ -314,6 +335,10 @@ export class OpenClawApp extends LitElement {
   @state() skillEdits: Record<string, string> = {};
   @state() skillsBusyKey: string | null = null;
   @state() skillMessages: Record<string, SkillMessage> = {};
+  @state() cortexSkills: import("./types.js").CortexSkillSummary[] = [];
+  @state() cortexSkillsError: string | null = null;
+  @state() cortexSkillDetail: import("./types.js").CortexSkillDetailResponse | null = null;
+  @state() cortexSkillDetailName: string | null = null;
 
   @state() debugLoading = false;
   @state() debugStatus: StatusSummary | null = null;
@@ -356,6 +381,17 @@ export class OpenClawApp extends LitElement {
   private toolStreamOrder: string[] = [];
   refreshSessionsAfterChat = new Set<string>();
   basePath = "";
+  @state() authMode = "";
+  @state() cortexUrl: string | null = null;
+  @state() supabaseUrl: string | null = null;
+  @state() supabaseAnonKey: string | null = null;
+  @state() ssoDomain: string | null = null;
+  @state() aiIntranetUrl: string | null = null;
+  @state() appId: string | null = null;
+  @state() cortexUser: import("./cortex-auth.ts").CortexAuthSession | null = null;
+  @state() cortexLoginLoading = false;
+  @state() cortexLoginError: string | null = null;
+  @state() cortexLoginStatus: string | null = null;
   private popStateHandler = () =>
     onPopStateInternal(this as unknown as Parameters<typeof onPopStateInternal>[0]);
   private themeMedia: MediaQueryList | null = null;
@@ -581,6 +617,39 @@ export class OpenClawApp extends LitElement {
     const newRatio = Math.max(0.4, Math.min(0.7, ratio));
     this.splitRatio = newRatio;
     this.applySettings({ ...this.settings, splitRatio: newRatio });
+  }
+
+  async handleCortexLogin() {
+    if (!this.aiIntranetUrl || !this.appId) {
+      this.cortexLoginError =
+        "SSO not configured. Set AI_INTRANET_URL and AI_INTRANET_APP_ID environment variables.";
+      return;
+    }
+    this.cortexLoginLoading = true;
+    this.cortexLoginError = null;
+    try {
+      const { startCortexOktaSso } = await import("./cortex-auth.ts");
+      // This redirects the browser to AI Intranet login. The callback is
+      // handled in app-lifecycle.ts when the page reloads with ?auth_token=...
+      await startCortexOktaSso({
+        aiIntranetUrl: this.aiIntranetUrl,
+        appId: this.appId,
+      });
+    } catch (err) {
+      this.cortexLoginError = err instanceof Error ? err.message : String(err);
+      this.cortexLoginLoading = false;
+    }
+    // Note: no finally — if redirect succeeds, the page navigates away.
+  }
+
+  handleCortexLogout() {
+    void import("./cortex-auth.ts").then(({ clearCortexAuth }) => {
+      clearCortexAuth();
+      this.cortexUser = null;
+      this.client?.stop();
+      this.connected = false;
+      history.replaceState({}, "", "/");
+    });
   }
 
   render() {

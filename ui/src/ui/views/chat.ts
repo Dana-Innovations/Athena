@@ -236,7 +236,10 @@ export function renderChat(props: ChatProps) {
           }
 
           if (item.kind === "reading-indicator") {
-            return renderReadingIndicatorGroup(assistantIdentity);
+            return html`
+              <div class="chat-thinking-orb" role="status" aria-label="Assistant is thinking"></div>
+              ${renderReadingIndicatorGroup(assistantIdentity)}
+            `;
           }
 
           if (item.kind === "stream") {

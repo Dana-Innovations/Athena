@@ -1,5 +1,10 @@
 import type { GatewayBrowserClient } from "../gateway.ts";
-import type { SkillStatusReport } from "../types.ts";
+import type {
+  CortexSkillDetailResponse,
+  CortexSkillSummary,
+  CortexSkillsListResult,
+  SkillStatusReport,
+} from "../types.ts";
 
 export type SkillsState = {
   client: GatewayBrowserClient | null;
@@ -10,6 +15,10 @@ export type SkillsState = {
   skillsBusyKey: string | null;
   skillEdits: Record<string, string>;
   skillMessages: SkillMessageMap;
+  cortexSkills: CortexSkillSummary[];
+  cortexSkillsError: string | null;
+  cortexSkillDetail: CortexSkillDetailResponse | null;
+  cortexSkillDetailName: string | null;
 };
 
 export type SkillMessage = {
@@ -55,10 +64,21 @@ export async function loadSkills(state: SkillsState, options?: LoadSkillsOptions
   }
   state.skillsLoading = true;
   state.skillsError = null;
+  state.cortexSkillsError = null;
   try {
-    const res = await state.client.request<SkillStatusReport | undefined>("skills.status", {});
-    if (res) {
-      state.skillsReport = res;
+    const [localRes, cortexRes] = await Promise.allSettled([
+      state.client.request<SkillStatusReport | undefined>("skills.status", {}),
+      state.client.request<CortexSkillsListResult>("sonance.skills.list", {}),
+    ]);
+    if (localRes.status === "fulfilled" && localRes.value) {
+      state.skillsReport = localRes.value;
+    } else if (localRes.status === "rejected") {
+      state.skillsError = getErrorMessage(localRes.reason);
+    }
+    if (cortexRes.status === "fulfilled" && cortexRes.value?.skills) {
+      state.cortexSkills = cortexRes.value.skills;
+    } else if (cortexRes.status === "rejected") {
+      state.cortexSkillsError = getErrorMessage(cortexRes.reason);
     }
   } catch (err) {
     state.skillsError = getErrorMessage(err);
@@ -153,5 +173,58 @@ export async function installSkill(
     });
   } finally {
     state.skillsBusyKey = null;
+  }
+}
+
+// ── Cortex Skills ───────────────────────────────────────────────────
+
+export async function toggleCortexSkill(state: SkillsState, skillName: string, enabled: boolean) {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  const key = `cortex:${skillName}`;
+  state.skillsBusyKey = key;
+  try {
+    await state.client.request("sonance.skills.update_settings", {
+      skillName,
+      enabled,
+    });
+    // Reload Cortex skills to reflect the updated state
+    const res = await state.client.request<CortexSkillsListResult>("sonance.skills.list", {});
+    if (res?.skills) {
+      state.cortexSkills = res.skills;
+    }
+    setSkillMessage(state, key, {
+      kind: "success",
+      message: enabled ? "Skill enabled" : "Skill disabled",
+    });
+  } catch (err) {
+    setSkillMessage(state, key, {
+      kind: "error",
+      message: getErrorMessage(err),
+    });
+  } finally {
+    state.skillsBusyKey = null;
+  }
+}
+
+export async function loadCortexSkillDetail(state: SkillsState, skillName: string) {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  state.cortexSkillDetailName = skillName;
+  state.cortexSkillDetail = null;
+  try {
+    const res = await state.client.request<CortexSkillDetailResponse>("sonance.skills.detail", {
+      skillName,
+    });
+    if (res) {
+      state.cortexSkillDetail = res;
+    }
+  } catch (err) {
+    setSkillMessage(state, `cortex:${skillName}`, {
+      kind: "error",
+      message: getErrorMessage(err),
+    });
   }
 }

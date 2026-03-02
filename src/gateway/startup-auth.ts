@@ -33,6 +33,12 @@ export function mergeGatewayAuthConfig(
   if (override.trustedProxy !== undefined) {
     merged.trustedProxy = override.trustedProxy;
   }
+  if (override.sonanceSso !== undefined) {
+    merged.sonanceSso = override.sonanceSso;
+  }
+  if (override.cortex !== undefined) {
+    merged.cortex = override.cortex;
+  }
   return merged;
 }
 

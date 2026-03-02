@@ -5,10 +5,16 @@ import { refreshChatAvatar } from "./app-chat.ts";
 import { renderUsageTab } from "./app-render-usage-tab.ts";
 import { renderChatControls, renderTab, renderThemeToggle } from "./app-render.helpers.ts";
 import type { AppViewState } from "./app-view-state.ts";
+import { loadAdminData, type AdminState } from "./controllers/admin.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
-import { loadAgents } from "./controllers/agents.ts";
+import {
+  initiateOAuthConnect,
+  loadAgents,
+  loadCortexConnections,
+  loadCortexTools,
+} from "./controllers/agents.ts";
 import { loadApolloData } from "./controllers/apollo.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
@@ -28,6 +34,11 @@ import {
   addCronJob,
   normalizeCronFormState,
 } from "./controllers/cron.ts";
+import {
+  forceRefreshDashboard,
+  refreshDashboardWidget,
+  type DashboardState,
+} from "./controllers/dashboard.ts";
 import { loadDebug, callDebugMethod } from "./controllers/debug.ts";
 import {
   approveDevicePairing,
@@ -48,23 +59,28 @@ import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
   installSkill,
+  loadCortexSkillDetail,
   loadSkills,
   saveSkillApiKey,
+  toggleCortexSkill,
   updateSkillEdit,
   updateSkillEnabled,
 } from "./controllers/skills.ts";
 import { icons } from "./icons.ts";
-import { normalizeBasePath, TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
+import { TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
+import { renderAdmin } from "./views/admin.ts";
 import { renderAgents } from "./views/agents.ts";
 import { renderApollo } from "./views/apollo.ts";
 import { renderChannels } from "./views/channels.ts";
 import { renderChat } from "./views/chat.ts";
 import { renderConfig } from "./views/config.ts";
 import { renderCron } from "./views/cron.ts";
+import { renderDashboard } from "./views/dashboard.ts";
 import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderInstances } from "./views/instances.ts";
+import { renderLanding } from "./views/landing.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
@@ -91,6 +107,11 @@ function resolveAssistantAvatarUrl(state: AppViewState): string | undefined {
 }
 
 export function renderApp(state: AppViewState) {
+  // In cortex auth mode, show the public landing page when not authenticated.
+  if (state.authMode === "cortex" && !state.cortexUser) {
+    return renderLanding(state);
+  }
+
   const presenceCount = state.presenceEntries.length;
   const sessionsCount = state.sessionsResult?.count ?? null;
   const cronNext = state.cronStatus?.nextWakeAtMs ?? null;
@@ -102,7 +123,6 @@ export function renderApp(state: AppViewState) {
   const chatAvatarUrl = state.chatAvatarUrl ?? assistantAvatarUrl ?? null;
   const configValue =
     state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
-  const basePath = normalizeBasePath(state.basePath ?? "");
   const resolvedAgentId =
     state.agentsSelectedId ??
     state.agentsList?.defaultId ??
@@ -126,8 +146,11 @@ export function renderApp(state: AppViewState) {
             <span class="nav-collapse-toggle__icon">${icons.menu}</span>
           </button>
           <div class="brand">
-            <div class="brand-logo">
-              <img src=${basePath ? `${basePath}/favicon.svg` : "/favicon.svg"} alt="OpenClaw" />
+            <div class="brand-orb" aria-hidden="true">
+              <div class="brand-orb__glow"></div>
+              <div class="brand-orb__sphere">
+                <div class="brand-orb__highlight"></div>
+              </div>
             </div>
             <div class="brand-text">
               <div class="brand-title">SONANCECLAW</div>
@@ -141,6 +164,16 @@ export function renderApp(state: AppViewState) {
             <span>${t("common.health")}</span>
             <span class="mono">${state.connected ? t("common.ok") : t("common.offline")}</span>
           </div>
+          ${
+            state.cortexUser
+              ? html`<div class="cortex-user-badge">
+                <span class="cortex-user-email">${state.cortexUser.displayName ?? state.cortexUser.email}</span>
+                <button class="cortex-logout-btn" @click=${() => state.handleCortexLogout()} title="Sign out">
+                  Sign out
+                </button>
+              </div>`
+              : nothing
+          }
           ${renderThemeToggle(state)}
         </div>
       </header>
@@ -166,7 +199,9 @@ export function renderApp(state: AppViewState) {
                 <span class="nav-label__chevron">${isGroupCollapsed ? "+" : "−"}</span>
               </button>
               <div class="nav-group__items">
-                ${group.tabs.map((tab) => renderTab(state, tab))}
+                ${group.tabs
+                  .filter((tab) => tab !== "admin" || state.cortexUser?.role === "admin")
+                  .map((tab) => renderTab(state, tab))}
               </div>
             </div>
           `;
@@ -214,6 +249,26 @@ export function renderApp(state: AppViewState) {
           </div>
         </section>
 
+        ${
+          state.tab === "dashboard"
+            ? renderDashboard({
+                loading: state.dashboardLoading,
+                error: state.dashboardError,
+                widgets: state.dashboardWidgets,
+                connections: state.cortexConnections,
+                connectionsLoaded: state.cortexConnectionsLoaded,
+                lastRefreshAt: state.dashboardLastRefreshAt,
+                userName:
+                  state.cortexUser?.displayName ?? state.cortexUser?.email?.split("@")[0] ?? null,
+                onRefresh: () => {
+                  void forceRefreshDashboard(state as unknown as DashboardState);
+                },
+                onRefreshWidget: (mcpName: string) => {
+                  void refreshDashboardWidget(state as unknown as DashboardState, mcpName);
+                },
+              })
+            : nothing
+        }
         ${
           state.tab === "overview"
             ? renderOverview({
@@ -336,6 +391,32 @@ export function renderApp(state: AppViewState) {
         }
 
         ${
+          state.tab === "admin"
+            ? renderAdmin({
+                loading: state.adminLoading,
+                error: state.adminError,
+                activePanel: state.adminPanel,
+                users: state.adminUsers,
+                usersFilter: state.adminUsersFilter,
+                usageSummary: state.adminUsageSummary,
+                usageDetails: state.adminUsageDetails,
+                mcps: state.adminMcps,
+                mcpAccess: state.adminMcpAccess,
+                onPanelChange: (panel) => {
+                  state.adminPanel = panel;
+                  void loadAdminData(state as unknown as AdminState);
+                },
+                onUsersFilterChange: (filter) => {
+                  state.adminUsersFilter = filter;
+                },
+                onRefresh: () => {
+                  void loadAdminData(state as unknown as AdminState);
+                },
+              })
+            : nothing
+        }
+
+        ${
           state.tab === "cron"
             ? renderCron({
                 basePath: state.basePath,
@@ -398,9 +479,29 @@ export function renderApp(state: AppViewState) {
                 agentSkillsReport: state.agentSkillsReport,
                 agentSkillsError: state.agentSkillsError,
                 agentSkillsAgentId: state.agentSkillsAgentId,
+                cortexToolGroups: state.cortexToolGroups,
+                cortexConnections: state.cortexConnections,
+                onConnectOAuth: (mcpName: string) => {
+                  void initiateOAuthConnect(state, mcpName);
+                },
                 skillsFilter: state.skillsFilter,
+                sidebarSearch: state.agentsSidebarSearch,
+                onSidebarSearchChange: (value: string) => {
+                  state.agentsSidebarSearch = value;
+                },
                 onRefresh: async () => {
+                  // Re-sync tools from Cortex (discovers new MCPs)
+                  try {
+                    await state.client?.request("cortex.sync", {});
+                  } catch {
+                    // cortex-tools plugin may not be loaded; continue with agents.list
+                  }
                   await loadAgents(state);
+                  // Refresh Cortex tool groups and connections for the Tools tab
+                  state.cortexToolsLoaded = false;
+                  state.cortexConnectionsLoaded = false;
+                  void loadCortexTools(state);
+                  void loadCortexConnections(state);
                   const agentIds = state.agentsList?.agents?.map((entry) => entry.id) ?? [];
                   if (agentIds.length > 0) {
                     void loadAgentIdentities(state, agentIds);
@@ -430,6 +531,12 @@ export function renderApp(state: AppViewState) {
                 },
                 onSelectPanel: (panel) => {
                   state.agentsPanel = panel;
+                  if (panel === "tools" && !state.cortexToolsLoaded) {
+                    void loadCortexTools(state);
+                  }
+                  if (panel === "tools" && !state.cortexConnectionsLoaded) {
+                    void loadCortexConnections(state);
+                  }
                   if (panel === "files" && resolvedAgentId) {
                     if (state.agentFilesList?.agentId !== resolvedAgentId) {
                       state.agentFilesList = null;
@@ -720,6 +827,10 @@ export function renderApp(state: AppViewState) {
                 edits: state.skillEdits,
                 messages: state.skillMessages,
                 busyKey: state.skillsBusyKey,
+                cortexSkills: state.cortexSkills,
+                cortexSkillsError: state.cortexSkillsError,
+                cortexSkillDetail: state.cortexSkillDetail,
+                cortexSkillDetailName: state.cortexSkillDetailName,
                 onFilterChange: (next) => (state.skillsFilter = next),
                 onRefresh: () => loadSkills(state, { clearMessages: true }),
                 onToggle: (key, enabled) => updateSkillEnabled(state, key, enabled),
@@ -727,6 +838,12 @@ export function renderApp(state: AppViewState) {
                 onSaveKey: (key) => saveSkillApiKey(state, key),
                 onInstall: (skillKey, name, installId) =>
                   installSkill(state, skillKey, name, installId),
+                onCortexToggle: (name, enabled) => toggleCortexSkill(state, name, enabled),
+                onCortexDetail: (name) => loadCortexSkillDetail(state, name),
+                onCortexDetailClose: () => {
+                  state.cortexSkillDetail = null;
+                  state.cortexSkillDetailName = null;
+                },
               })
             : nothing
         }

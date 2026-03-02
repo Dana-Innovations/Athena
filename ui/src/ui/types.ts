@@ -552,6 +552,51 @@ export type SkillStatusReport = {
   skills: SkillStatusEntry[];
 };
 
+// ── Cortex Skills Types ─────────────────────────────────────────────
+
+export type CortexSkillSummary = {
+  name: string;
+  display_name: string;
+  description: string;
+  category: string;
+  mcp_name: string;
+  rule_count: number;
+  enabled: boolean;
+};
+
+export type CortexSkillRule = {
+  id: string;
+  title: string;
+  description: string;
+  priority: string;
+  correct_example: string | null;
+  incorrect_example: string | null;
+  applicable_tools: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CortexSkillDetailResponse = {
+  definition: {
+    name: string;
+    display_name: string;
+    description: string;
+    category: string;
+    mcp_name: string;
+    version: string;
+    author: string | null;
+    enabled_by_default: boolean;
+    metadata: Record<string, unknown>;
+  };
+  rules: CortexSkillRule[];
+  user_enabled: boolean;
+  user_settings: Record<string, unknown>;
+};
+
+export type CortexSkillsListResult = {
+  skills: CortexSkillSummary[];
+  total: number;
+};
+
 export type StatusSummary = Record<string, unknown>;
 
 export type HealthSnapshot = Record<string, unknown>;

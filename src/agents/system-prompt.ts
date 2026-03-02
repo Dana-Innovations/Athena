@@ -38,6 +38,23 @@ function buildSkillsSection(params: {
   ];
 }
 
+function buildCortexSkillsSection(params: { cortexSkillsPrompt?: string; isMinimal: boolean }) {
+  if (params.isMinimal) {
+    return [];
+  }
+  const trimmed = params.cortexSkillsPrompt?.trim();
+  if (!trimmed) {
+    return [];
+  }
+  return [
+    "## Best Practices (mandatory)",
+    "The following quality rules are enforced standards from Cortex. Follow them when using the applicable tools.",
+    "",
+    trimmed,
+    "",
+  ];
+}
+
 function buildMemorySection(params: {
   isMinimal: boolean;
   availableTools: Set<string>;
@@ -181,6 +198,7 @@ export function buildAgentSystemPrompt(params: {
   userTimeFormat?: ResolvedTimeFormat;
   contextFiles?: EmbeddedContextFile[];
   skillsPrompt?: string;
+  cortexSkillsPrompt?: string;
   heartbeatPrompt?: string;
   docsPath?: string;
   workspaceNotes?: string[];
@@ -381,6 +399,10 @@ export function buildAgentSystemPrompt(params: {
     isMinimal,
     readToolName,
   });
+  const cortexSkillsSection = buildCortexSkillsSection({
+    cortexSkillsPrompt: params.cortexSkillsPrompt,
+    isMinimal,
+  });
   const memorySection = buildMemorySection({
     isMinimal,
     availableTools,
@@ -446,6 +468,7 @@ export function buildAgentSystemPrompt(params: {
     "If unsure, ask the user to run `openclaw help` (or `openclaw gateway --help`) and paste the output.",
     "",
     ...skillsSection,
+    ...cortexSkillsSection,
     ...memorySection,
     // Skip self-update for subagent/none modes
     hasGateway && !isMinimal ? "## OpenClaw Self-Update" : "",

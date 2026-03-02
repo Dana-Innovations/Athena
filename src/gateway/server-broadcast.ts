@@ -67,7 +67,7 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
       return;
     }
     const isTargeted = Boolean(targetConnIds);
-    const eventSeq = isTargeted ? undefined : ++seq;
+    const eventSeq = isTargeted || opts?.dropIfSlow ? undefined : ++seq;
     const frame = JSON.stringify({
       type: "event",
       event,
@@ -78,7 +78,7 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
     if (shouldLogWs()) {
       const logMeta: Record<string, unknown> = {
         event,
-        seq: eventSeq ?? "targeted",
+        seq: eventSeq ?? (isTargeted ? "targeted" : "droppable"),
         clients: params.clients.size,
         targets: targetConnIds ? targetConnIds.size : undefined,
         dropIfSlow: opts?.dropIfSlow,

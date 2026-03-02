@@ -14,6 +14,7 @@ export const en: TranslationMap = {
     resources: "Resources",
   },
   nav: {
+    home: "Home",
     chat: "Chat",
     control: "Control",
     agent: "Agent",
@@ -23,6 +24,7 @@ export const en: TranslationMap = {
     collapse: "Collapse sidebar",
   },
   tabs: {
+    dashboard: "Dashboard",
     agents: "Agents",
     overview: "Overview",
     channels: "Channels",
@@ -37,8 +39,10 @@ export const en: TranslationMap = {
     config: "Config",
     debug: "Debug",
     logs: "Logs",
+    admin: "Admin",
   },
   subtitles: {
+    dashboard: "Your personalized overview of connected services and activity.",
     agents: "Manage agent workspaces, tools, and identities.",
     overview: "Gateway status, entry points, and a fast health read.",
     channels: "Manage channels and settings.",
@@ -53,6 +57,7 @@ export const en: TranslationMap = {
     config: "Edit ~/.openclaw/openclaw.json safely.",
     debug: "Gateway snapshots, events, and manual RPC calls.",
     logs: "Live tail of the gateway file logs.",
+    admin: "User management, usage analytics, and MCP configuration.",
   },
   overview: {
     access: {

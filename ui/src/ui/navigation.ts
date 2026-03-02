@@ -2,17 +2,19 @@ import { t } from "../i18n/index.ts";
 import type { IconName } from "./icons.js";
 
 export const TAB_GROUPS = [
+  { label: "home", tabs: ["dashboard"] },
   { label: "chat", tabs: ["chat"] },
   {
     label: "control",
     tabs: ["overview", "channels", "instances", "sessions", "usage", "cron"],
   },
   { label: "agent", tabs: ["agents", "skills", "nodes"] },
-  { label: "sonance", tabs: ["apollo"] },
+  { label: "sonance", tabs: ["apollo", "admin"] },
   { label: "settings", tabs: ["config", "debug", "logs"] },
 ] as const;
 
 export type Tab =
+  | "dashboard"
   | "agents"
   | "overview"
   | "channels"
@@ -26,9 +28,11 @@ export type Tab =
   | "chat"
   | "config"
   | "debug"
-  | "logs";
+  | "logs"
+  | "admin";
 
 const TAB_PATHS: Record<Tab, string> = {
+  dashboard: "/dashboard",
   agents: "/agents",
   overview: "/overview",
   channels: "/channels",
@@ -43,6 +47,7 @@ const TAB_PATHS: Record<Tab, string> = {
   config: "/config",
   debug: "/debug",
   logs: "/logs",
+  admin: "/admin",
 };
 
 const PATH_TO_TAB = new Map(Object.entries(TAB_PATHS).map(([tab, path]) => [path, tab as Tab]));
@@ -99,7 +104,7 @@ export function tabFromPath(pathname: string, basePath = ""): Tab | null {
     normalized = "/";
   }
   if (normalized === "/") {
-    return "chat";
+    return "dashboard";
   }
   return PATH_TO_TAB.get(normalized) ?? null;
 }
@@ -128,6 +133,8 @@ export function inferBasePathFromPathname(pathname: string): string {
 
 export function iconForTab(tab: Tab): IconName {
   switch (tab) {
+    case "dashboard":
+      return "home";
     case "agents":
       return "folder";
     case "chat":
@@ -156,6 +163,8 @@ export function iconForTab(tab: Tab): IconName {
       return "bug";
     case "logs":
       return "scrollText";
+    case "admin":
+      return "shield";
     default:
       return "folder";
   }

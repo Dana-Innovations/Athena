@@ -99,6 +99,37 @@ describe("gateway broadcaster", () => {
     expect(approvalsSocket.send).toHaveBeenCalledTimes(1);
     expect(pairingSocket.send).toHaveBeenCalledTimes(1);
   });
+
+  it("excludes dropIfSlow events from seq and maintains continuity", () => {
+    const socket: TestSocket = {
+      bufferedAmount: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+    const clients = new Set<GatewayWsClient>([
+      {
+        socket: socket as unknown as GatewayWsClient["socket"],
+        connect: { role: "operator", scopes: ["operator.admin"] } as GatewayWsClient["connect"],
+        connId: "c1",
+      },
+    ]);
+    const { broadcast } = createGatewayBroadcaster({ clients });
+
+    // Non-droppable event gets seq 1
+    broadcast("chat", { state: "final" });
+    const frame1 = JSON.parse((socket.send as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    expect(frame1.seq).toBe(1);
+
+    // dropIfSlow event gets no seq
+    broadcast("presence", { entries: [] }, { dropIfSlow: true });
+    const frame2 = JSON.parse((socket.send as ReturnType<typeof vi.fn>).mock.calls[1][0]);
+    expect(frame2.seq).toBeUndefined();
+
+    // Next non-droppable event continues at seq 2 (no gap)
+    broadcast("chat", { state: "error" });
+    const frame3 = JSON.parse((socket.send as ReturnType<typeof vi.fn>).mock.calls[2][0]);
+    expect(frame3.seq).toBe(2);
+  });
 });
 
 describe("chat run registry", () => {

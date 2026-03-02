@@ -875,6 +875,14 @@ export function attachGatewayWsMessageHandler(params: {
           canvasCapabilityExpiresAtMs,
         };
         setClient(nextClient);
+
+        // Bridge Sonance SSO identity to the session-based user store so that
+        // plugin tool factories can retrieve the user via sessionKey.
+        if (nextClient.sonanceUser && presenceKey) {
+          const { setSonanceSessionUser } = await import("../../sonance-context.js");
+          setSonanceSessionUser(presenceKey, nextClient.sonanceUser);
+        }
+
         setHandshakeState("connected");
         if (role === "node") {
           const context = buildRequestContext();

@@ -71,9 +71,12 @@ type ControlUiAvatarMeta = {
   avatarUrl: string | null;
 };
 
-function applyControlUiSecurityHeaders(res: ServerResponse) {
+function applyControlUiSecurityHeaders(
+  res: ServerResponse,
+  cspOpts?: { cortexUrl?: string; supabaseUrl?: string; aiIntranetUrl?: string },
+) {
   res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Content-Security-Policy", buildControlUiCspHeader());
+  res.setHeader("Content-Security-Policy", buildControlUiCspHeader(cspOpts));
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
 }
@@ -205,10 +208,16 @@ export function handleControlUiHttpRequest(
   const url = new URL(urlRaw, "http://localhost");
   const basePath = normalizeControlUiBasePath(opts?.basePath);
   const pathname = url.pathname;
+  const cortexAuth = opts?.config?.gateway?.auth?.cortex;
+  const cspOpts = {
+    cortexUrl: cortexAuth?.cortexUrl,
+    supabaseUrl: cortexAuth?.supabaseUrl,
+    aiIntranetUrl: cortexAuth?.aiIntranetUrl,
+  };
 
   if (!basePath) {
     if (pathname === "/ui" || pathname.startsWith("/ui/")) {
-      applyControlUiSecurityHeaders(res);
+      applyControlUiSecurityHeaders(res, cspOpts);
       respondNotFound(res);
       return true;
     }
@@ -216,7 +225,7 @@ export function handleControlUiHttpRequest(
 
   if (basePath) {
     if (pathname === basePath) {
-      applyControlUiSecurityHeaders(res);
+      applyControlUiSecurityHeaders(res, cspOpts);
       res.statusCode = 302;
       res.setHeader("Location", `${basePath}/${url.search}`);
       res.end();
@@ -227,7 +236,7 @@ export function handleControlUiHttpRequest(
     }
   }
 
-  applyControlUiSecurityHeaders(res);
+  applyControlUiSecurityHeaders(res, cspOpts);
 
   const bootstrapConfigPath = basePath
     ? `${basePath}${CONTROL_UI_BOOTSTRAP_CONFIG_PATH}`
@@ -249,11 +258,19 @@ export function handleControlUiHttpRequest(
       res.end();
       return true;
     }
+    const authConfig = opts?.config?.gateway?.auth;
     sendJson(res, 200, {
       basePath,
       assistantName: identity.name,
       assistantAvatar: avatarValue ?? identity.avatar,
       assistantAgentId: identity.agentId,
+      authMode: authConfig?.mode ?? undefined,
+      cortexUrl: authConfig?.cortex?.cortexUrl ?? undefined,
+      supabaseUrl: authConfig?.cortex?.supabaseUrl ?? undefined,
+      supabaseAnonKey: authConfig?.cortex?.supabaseAnonKey ?? undefined,
+      ssoDomain: authConfig?.cortex?.ssoDomain ?? undefined,
+      aiIntranetUrl: authConfig?.cortex?.aiIntranetUrl ?? undefined,
+      appId: authConfig?.cortex?.appId ?? undefined,
     } satisfies ControlUiBootstrapConfig);
     return true;
   }

@@ -18,36 +18,38 @@ import { formatBytes, type AgentContext } from "./agents-utils.ts";
 
 function renderAgentContextCard(context: AgentContext, subtitle: string) {
   return html`
-    <section class="card">
-      <div class="card-title">Agent Context</div>
-      <div class="card-sub">${subtitle}</div>
-      <div class="agents-overview-grid" style="margin-top: 16px;">
-        <div class="agent-kv">
-          <div class="label">Workspace</div>
-          <div class="mono">${context.workspace}</div>
+    <div class="agent-model-card" style="margin-bottom: 20px;">
+      <div class="agent-model-card__header">
+        <div class="agent-model-card__title">Agent Context</div>
+        <span class="muted" style="font-size: 12px;">${subtitle}</span>
+      </div>
+      <div class="agent-overview__stats">
+        <div class="agent-stat">
+          <div class="agent-stat__label">Workspace</div>
+          <div class="agent-stat__value mono">${context.workspace}</div>
         </div>
-        <div class="agent-kv">
-          <div class="label">Primary Model</div>
-          <div class="mono">${context.model}</div>
+        <div class="agent-stat">
+          <div class="agent-stat__label">Primary Model</div>
+          <div class="agent-stat__value mono">${context.model}</div>
         </div>
-        <div class="agent-kv">
-          <div class="label">Identity Name</div>
-          <div>${context.identityName}</div>
+        <div class="agent-stat">
+          <div class="agent-stat__label">Identity</div>
+          <div class="agent-stat__value">${context.identityName}</div>
         </div>
-        <div class="agent-kv">
-          <div class="label">Identity Emoji</div>
-          <div>${context.identityEmoji}</div>
+        <div class="agent-stat">
+          <div class="agent-stat__label">Emoji</div>
+          <div class="agent-stat__value">${context.identityEmoji}</div>
         </div>
-        <div class="agent-kv">
-          <div class="label">Skills Filter</div>
-          <div>${context.skillsLabel}</div>
+        <div class="agent-stat">
+          <div class="agent-stat__label">Skills</div>
+          <div class="agent-stat__value">${context.skillsLabel}</div>
         </div>
-        <div class="agent-kv">
-          <div class="label">Default</div>
-          <div>${context.isDefault ? "yes" : "no"}</div>
+        <div class="agent-stat">
+          <div class="agent-stat__label">Role</div>
+          <div class="agent-stat__value">${context.isDefault ? "Default" : "Agent"}</div>
         </div>
       </div>
-    </section>
+    </div>
   `;
 }
 

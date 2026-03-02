@@ -1,5 +1,7 @@
 import { html, nothing } from "lit";
 import { normalizeToolName } from "../../../../src/agents/tool-policy-shared.js";
+import type { MCPConnection } from "../controllers/agents.ts";
+import { icons } from "../icons.ts";
 import type { SkillStatusEntry, SkillStatusReport } from "../types.ts";
 import {
   extractPluginToolGroups,
@@ -9,6 +11,7 @@ import {
   resolveAgentConfig,
   resolveToolProfile,
   TOOL_SECTIONS,
+  type PluginToolGroup,
 } from "./agents-utils.ts";
 import type { SkillGroup } from "./skills-grouping.ts";
 import { groupSkills } from "./skills-grouping.ts";
@@ -18,12 +21,19 @@ import {
   renderSkillStatusChips,
 } from "./skills-shared.ts";
 
+/* ============================================================
+   Tools Panel
+   ============================================================ */
+
 export function renderAgentTools(params: {
   agentId: string;
   configForm: Record<string, unknown> | null;
   configLoading: boolean;
   configSaving: boolean;
   configDirty: boolean;
+  cortexToolGroups?: PluginToolGroup[] | null;
+  cortexConnections?: MCPConnection[] | null;
+  onConnectOAuth?: (mcpName: string) => void;
   onProfileChange: (agentId: string, profile: string | null, clearAllow: boolean) => void;
   onOverridesChange: (agentId: string, alsoAllow: string[], deny: string[]) => void;
   onConfigReload: () => void;
@@ -33,11 +43,6 @@ export function renderAgentTools(params: {
   const agentTools = config.entry?.tools ?? {};
   const globalTools = config.globalTools ?? {};
   const profile = agentTools.profile ?? globalTools.profile ?? "full";
-  const profileSource = agentTools.profile
-    ? "agent override"
-    : globalTools.profile
-      ? "global default"
-      : "default";
   const hasAgentAllow = Array.isArray(agentTools.allow) && agentTools.allow.length > 0;
   const hasGlobalAllow = Array.isArray(globalTools.allow) && globalTools.allow.length > 0;
   const editable =
@@ -58,14 +63,16 @@ export function renderAgentTools(params: {
     const extraAllowed = matchesList(toolId, alsoAllow);
     const denied = matchesList(toolId, deny);
     const allowed = (baseAllowed || extraAllowed) && !denied;
-    return {
-      allowed,
-      baseAllowed,
-      denied,
-    };
+    return { allowed, baseAllowed, denied };
   };
   const enabledCount = toolIds.filter((toolId) => resolveAllowed(toolId).allowed).length;
-  const pluginGroups = extractPluginToolGroups(agentTools.allow);
+  const allPluginGroups = params.cortexToolGroups ?? extractPluginToolGroups(agentTools.allow);
+  const agentMcpName = params.agentId.startsWith("cortex-")
+    ? params.agentId.slice("cortex-".length).replace(/-/g, "_")
+    : null;
+  const pluginGroups = agentMcpName
+    ? allPluginGroups.filter((g) => g.mcpName === agentMcpName)
+    : allPluginGroups;
   const pluginToolCount = pluginGroups.reduce((sum, g) => sum + g.tools.length, 0);
 
   const updateTool = (toolId: string, nextEnabled: boolean) => {
@@ -113,95 +120,15 @@ export function renderAgentTools(params: {
   };
 
   return html`
-    <section class="card">
-      <div class="row" style="justify-content: space-between;">
-        <div>
-          <div class="card-title">Tool Access</div>
-          <div class="card-sub">
-            Profile + per-tool overrides for this agent.
-            <span class="mono">${enabledCount}/${toolIds.length}</span> built-in${
-              pluginToolCount > 0
-                ? html`, <span class="mono">${pluginToolCount}</span> integration`
-                : nothing
-            } enabled.
-          </div>
-        </div>
-        <div class="row" style="gap: 8px;">
-          <button class="btn btn--sm" ?disabled=${!editable} @click=${() => updateAll(true)}>
-            Enable All
-          </button>
-          <button class="btn btn--sm" ?disabled=${!editable} @click=${() => updateAll(false)}>
-            Disable All
-          </button>
-          <button class="btn btn--sm" ?disabled=${params.configLoading} @click=${params.onConfigReload}>
-            Reload Config
-          </button>
-          <button
-            class="btn btn--sm primary"
-            ?disabled=${params.configSaving || !params.configDirty}
-            @click=${params.onConfigSave}
-          >
-            ${params.configSaving ? "Saving…" : "Save"}
-          </button>
-        </div>
-      </div>
-
-      ${
-        !params.configForm
-          ? html`
-              <div class="callout info" style="margin-top: 12px">
-                Load the gateway config to adjust tool profiles.
-              </div>
-            `
-          : nothing
-      }
-      ${
-        hasAgentAllow
-          ? html`
-              <div class="callout info" style="margin-top: 12px">
-                This agent is using an explicit allowlist in config. Tool overrides are managed in the Config tab.
-              </div>
-            `
-          : nothing
-      }
-      ${
-        hasGlobalAllow
-          ? html`
-              <div class="callout info" style="margin-top: 12px">
-                Global tools.allow is set. Agent overrides cannot enable tools that are globally blocked.
-              </div>
-            `
-          : nothing
-      }
-
-      <div class="agent-tools-meta" style="margin-top: 16px;">
-        <div class="agent-kv">
-          <div class="label">Profile</div>
-          <div class="mono">${profile}</div>
-        </div>
-        <div class="agent-kv">
-          <div class="label">Source</div>
-          <div>${profileSource}</div>
-        </div>
-        ${
-          params.configDirty
-            ? html`
-                <div class="agent-kv">
-                  <div class="label">Status</div>
-                  <div class="mono">unsaved</div>
-                </div>
-              `
-            : nothing
-        }
-      </div>
-
-      <div class="agent-tools-presets" style="margin-top: 16px;">
-        <div class="label">Quick Presets</div>
-        <div class="agent-tools-buttons">
+    <div class="agent-tools">
+      <!-- Presets bar -->
+      <div class="agent-tools__presets">
+        <div class="agent-tools__presets-label">Profile</div>
+        <div class="agent-tools__preset-group">
           ${PROFILE_OPTIONS.map(
             (option) => html`
               <button
-                class="btn btn--sm ${profile === option.id ? "active" : ""}"
+                class="agent-tools__preset-btn ${profile === option.id ? "active" : ""}"
                 ?disabled=${!editable}
                 @click=${() => params.onProfileChange(params.agentId, option.id, true)}
               >
@@ -210,71 +137,158 @@ export function renderAgentTools(params: {
             `,
           )}
           <button
-            class="btn btn--sm"
+            class="agent-tools__preset-btn"
             ?disabled=${!editable}
             @click=${() => params.onProfileChange(params.agentId, null, false)}
           >
             Inherit
           </button>
         </div>
-      </div>
-
-      <div class="agent-tools-grid" style="margin-top: 20px;">
-        ${TOOL_SECTIONS.map(
-          (section) =>
-            html`
-              <div class="agent-tools-section">
-                <div class="agent-tools-header">${section.label}</div>
-                <div class="agent-tools-list">
-                  ${section.tools.map((tool) => {
-                    const { allowed } = resolveAllowed(tool.id);
-                    return html`
-                      <div class="agent-tool-row">
-                        <div>
-                          <div class="agent-tool-title mono">${tool.label}</div>
-                          <div class="agent-tool-sub">${tool.description}</div>
-                        </div>
-                        <label class="cfg-toggle">
-                          <input
-                            type="checkbox"
-                            .checked=${allowed}
-                            ?disabled=${!editable}
-                            @change=${(e: Event) =>
-                              updateTool(tool.id, (e.target as HTMLInputElement).checked)}
-                          />
-                          <span class="cfg-toggle__track"></span>
-                        </label>
-                      </div>
-                    `;
-                  })}
-                </div>
-              </div>
-            `,
-        )}
+        <div style="flex: 1;"></div>
+        <span class="muted" style="font-size: 12px;">
+          <span class="mono">${enabledCount}/${toolIds.length}</span> built-in${
+            pluginToolCount > 0
+              ? html`, <span class="mono">${pluginToolCount}</span> integration`
+              : nothing
+          }
+        </span>
+        <div style="display: flex; gap: 8px; margin-left: 8px;">
+          <button class="btn btn--sm" ?disabled=${!editable} @click=${() => updateAll(true)}>
+            Enable All
+          </button>
+          <button class="btn btn--sm" ?disabled=${!editable} @click=${() => updateAll(false)}>
+            Disable All
+          </button>
+          <button class="btn btn--sm" ?disabled=${params.configLoading} @click=${params.onConfigReload}>
+            Reload
+          </button>
+          <button
+            class="btn btn--sm primary"
+            ?disabled=${params.configSaving || !params.configDirty}
+            @click=${params.onConfigSave}
+          >
+            ${params.configSaving ? "Saving\u2026" : "Save"}
+          </button>
+        </div>
       </div>
 
       ${
+        !params.configForm
+          ? html`
+              <div class="callout info">Load the gateway config to adjust tool profiles.</div>
+            `
+          : nothing
+      }
+      ${
+        hasAgentAllow
+          ? html`
+              <div class="callout info">
+                This agent uses an explicit allowlist. Tool overrides are managed in config.
+              </div>
+            `
+          : nothing
+      }
+      ${
+        hasGlobalAllow
+          ? html`
+              <div class="callout info">
+                Global tools.allow is set. Agent overrides cannot enable globally blocked tools.
+              </div>
+            `
+          : nothing
+      }
+
+      <!-- Tool sections -->
+      ${TOOL_SECTIONS.map(
+        (section, i) => html`
+          <div class="agent-tools__section" style="animation-delay: ${0.05 + i * 0.04}s;">
+            <div class="agent-tools__section-header">
+              <span>${section.label}</span>
+              <span class="agent-tools__section-count">
+                ${section.tools.filter((t) => resolveAllowed(t.id).allowed).length}/${section.tools.length}
+              </span>
+            </div>
+            <div class="agent-tools__section-body">
+              ${section.tools.map((tool) => {
+                const { allowed } = resolveAllowed(tool.id);
+                return html`
+                  <div class="agent-tool ${allowed ? "" : "agent-tool--disabled"}">
+                    <div class="agent-tool__info">
+                      <div class="agent-tool__name">${tool.label}</div>
+                      <div class="agent-tool__desc">${tool.description}</div>
+                    </div>
+                    <label class="cfg-toggle">
+                      <input
+                        type="checkbox"
+                        .checked=${allowed}
+                        ?disabled=${!editable}
+                        @change=${(e: Event) =>
+                          updateTool(tool.id, (e.target as HTMLInputElement).checked)}
+                      />
+                      <span class="cfg-toggle__track"></span>
+                    </label>
+                  </div>
+                `;
+              })}
+            </div>
+          </div>
+        `,
+      )}
+
+      <!-- Cortex Integrations -->
+      ${
         pluginGroups.length > 0
           ? html`
-            <div style="margin-top: 28px; border-top: 1px solid var(--border, #e2e8f0); padding-top: 20px;">
-              <div class="card-title" style="margin-bottom: 4px;">Cortex Integrations</div>
-              <div class="card-sub" style="margin-bottom: 16px;">
-                MCP tools auto-synced from Cortex. Managed by the cortex-tools plugin.
-              </div>
-              ${pluginGroups.map(
-                (group) => html`
-                  <details class="agent-tools-section" open style="margin-bottom: 12px;">
-                    <summary class="agent-tools-header" style="cursor: pointer; user-select: none;">
-                      <span>${group.displayName}</span>
-                      <span class="muted" style="margin-left: 8px;">${group.tools.length} tool${group.tools.length === 1 ? "" : "s"}</span>
+              ${pluginGroups.map((group) => {
+                const allConns = (params.cortexConnections ?? []).filter(
+                  (c) => c.mcp_name === group.mcpName,
+                );
+                const personalConn = allConns.find((c) => !c.is_company_default);
+                const companyConn = allConns.find((c) => c.is_company_default);
+
+                const connectionBadge = personalConn
+                  ? html`<span class="agent-tools__conn-badge agent-tools__conn-badge--connected">
+                      Connected${personalConn.account_email ? ` (${personalConn.account_email})` : ""}
+                    </span>`
+                  : companyConn
+                    ? html`
+                        <span class="agent-tools__conn-badge agent-tools__conn-badge--company"> Company Default </span>
+                      `
+                    : html`
+                        <span class="agent-tools__conn-badge agent-tools__conn-badge--disconnected"> Not Connected </span>
+                      `;
+
+                const connectButton =
+                  !personalConn && params.onConnectOAuth
+                    ? html`<button
+                        class="btn btn--sm"
+                        style="margin-left: 8px;"
+                        @click=${(e: Event) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          params.onConnectOAuth!(group.mcpName);
+                        }}
+                      >Connect</button>`
+                    : nothing;
+
+                return html`
+                  <details class="agent-tools__integration" open>
+                    <summary class="agent-tools__integration-header">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="agent-tools__integration-name">${group.displayName}</span>
+                        <span class="agent-tools__section-count">${group.tools.length} tool${group.tools.length === 1 ? "" : "s"}</span>
+                      </div>
+                      <div style="display: flex; align-items: center;">
+                        ${connectionBadge}${connectButton}
+                      </div>
                     </summary>
-                    <div class="agent-tools-list" style="margin-top: 8px;">
+                    <div class="agent-tools__section-body">
                       ${group.tools.map(
                         (tool) => html`
-                          <div class="agent-tool-row">
-                            <div>
-                              <div class="agent-tool-title mono">${tool.shortName}</div>
-                              <div class="agent-tool-sub">${tool.name}</div>
+                          <div class="agent-tool">
+                            <div class="agent-tool__info">
+                              <div class="agent-tool__name">${tool.shortName}</div>
+                              <div class="agent-tool__desc">${tool.description || tool.name}</div>
                             </div>
                             <span class="muted" style="font-size: 12px;">auto</span>
                           </div>
@@ -282,15 +296,18 @@ export function renderAgentTools(params: {
                       )}
                     </div>
                   </details>
-                `,
-              )}
-            </div>
-          `
+                `;
+              })}
+            `
           : nothing
       }
-    </section>
+    </div>
   `;
 }
+
+/* ============================================================
+   Skills Panel
+   ============================================================ */
 
 export function renderAgentSkills(params: {
   agentId: string;
@@ -331,42 +348,38 @@ export function renderAgentSkills(params: {
   const totalCount = rawSkills.length;
 
   return html`
-    <section class="card">
-      <div class="row" style="justify-content: space-between;">
-        <div>
-          <div class="card-title">Skills</div>
-          <div class="card-sub">
-            Per-agent skill allowlist and workspace skills.
-            ${
-              totalCount > 0
-                ? html`<span class="mono">${enabledCount}/${totalCount}</span>`
-                : nothing
-            }
-          </div>
-        </div>
-        <div class="row" style="gap: 8px;">
+    <div class="agent-skills">
+      <!-- Toolbar -->
+      <div class="agent-skills__toolbar">
+        <input
+          class="agents-search agent-skills__search"
+          placeholder="Search skills\u2026"
+          .value=${params.filter}
+          @input=${(e: Event) => params.onFilterChange((e.target as HTMLInputElement).value)}
+        />
+        <span class="muted" style="font-size: 12px;">
+          ${totalCount > 0 ? html`<span class="mono">${enabledCount}/${totalCount}</span> enabled` : nothing}
+          ${filtered.length !== rawSkills.length ? html` \u00b7 ${filtered.length} shown` : nothing}
+        </span>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
           <button class="btn btn--sm" ?disabled=${!editable} @click=${() => params.onClear(params.agentId)}>
             Use All
           </button>
-          <button
-            class="btn btn--sm"
-            ?disabled=${!editable}
-            @click=${() => params.onDisableAll(params.agentId)}
-          >
+          <button class="btn btn--sm" ?disabled=${!editable} @click=${() => params.onDisableAll(params.agentId)}>
             Disable All
           </button>
-          <button class="btn btn--sm" ?disabled=${params.configLoading} @click=${params.onConfigReload}>
-            Reload Config
-          </button>
           <button class="btn btn--sm" ?disabled=${params.loading} @click=${params.onRefresh}>
-            ${params.loading ? "Loading…" : "Refresh"}
+            ${params.loading ? "Loading\u2026" : "Refresh"}
+          </button>
+          <button class="btn btn--sm" ?disabled=${params.configLoading} @click=${params.onConfigReload}>
+            Reload
           </button>
           <button
             class="btn btn--sm primary"
             ?disabled=${params.configSaving || !params.configDirty}
             @click=${params.onConfigSave}
           >
-            ${params.configSaving ? "Saving…" : "Save"}
+            ${params.configSaving ? "Saving\u2026" : "Save"}
           </button>
         </div>
       </div>
@@ -374,70 +387,49 @@ export function renderAgentSkills(params: {
       ${
         !params.configForm
           ? html`
-              <div class="callout info" style="margin-top: 12px">
-                Load the gateway config to set per-agent skills.
-              </div>
+              <div class="callout info">Load the gateway config to set per-agent skills.</div>
             `
           : nothing
       }
       ${
         usingAllowlist
           ? html`
-              <div class="callout info" style="margin-top: 12px">This agent uses a custom skill allowlist.</div>
+              <div class="callout info">This agent uses a custom skill allowlist.</div>
             `
           : html`
-              <div class="callout info" style="margin-top: 12px">
-                All skills are enabled. Disabling any skill will create a per-agent allowlist.
+              <div class="callout info">
+                All skills enabled. Disabling any skill creates a per-agent allowlist.
               </div>
             `
       }
       ${
         !reportReady && !params.loading
           ? html`
-              <div class="callout info" style="margin-top: 12px">
-                Load skills for this agent to view workspace-specific entries.
-              </div>
+              <div class="callout info">Load skills for this agent to view workspace-specific entries.</div>
             `
           : nothing
       }
-      ${
-        params.error
-          ? html`<div class="callout danger" style="margin-top: 12px;">${params.error}</div>`
-          : nothing
-      }
+      ${params.error ? html`<div class="callout danger">${params.error}</div>` : nothing}
 
-      <div class="filters" style="margin-top: 14px;">
-        <label class="field" style="flex: 1;">
-          <span>Filter</span>
-          <input
-            .value=${params.filter}
-            @input=${(e: Event) => params.onFilterChange((e.target as HTMLInputElement).value)}
-            placeholder="Search skills"
-          />
-        </label>
-        <div class="muted">${filtered.length} shown</div>
-      </div>
-
+      <!-- Skill groups -->
       ${
         filtered.length === 0
           ? html`
-              <div class="muted" style="margin-top: 16px">No skills found.</div>
+              <div class="muted" style="padding: 16px; text-align: center">No skills found.</div>
             `
-          : html`
-              <div class="agent-skills-groups" style="margin-top: 16px;">
-                ${groups.map((group) =>
-                  renderAgentSkillGroup(group, {
-                    agentId: params.agentId,
-                    allowSet,
-                    usingAllowlist,
-                    editable,
-                    onToggle: params.onToggle,
-                  }),
-                )}
-              </div>
-            `
+          : groups.map(
+              (group, i) =>
+                html`${renderAgentSkillGroup(group, {
+                  agentId: params.agentId,
+                  allowSet,
+                  usingAllowlist,
+                  editable,
+                  onToggle: params.onToggle,
+                  index: i,
+                })}`,
+            )
       }
-    </section>
+    </div>
   `;
 }
 
@@ -449,16 +441,30 @@ function renderAgentSkillGroup(
     usingAllowlist: boolean;
     editable: boolean;
     onToggle: (agentId: string, skillName: string, enabled: boolean) => void;
+    index: number;
   },
 ) {
   const collapsedByDefault = group.id === "workspace" || group.id === "built-in";
+  const enabledInGroup = params.usingAllowlist
+    ? group.skills.filter((s) => params.allowSet.has(s.name)).length
+    : group.skills.length;
+  const pct = group.skills.length > 0 ? (enabledInGroup / group.skills.length) * 100 : 0;
+
   return html`
-    <details class="agent-skills-group" ?open=${!collapsedByDefault}>
-      <summary class="agent-skills-header">
-        <span>${group.label}</span>
-        <span class="muted">${group.skills.length}</span>
+    <details
+      class="agent-skills__group"
+      ?open=${!collapsedByDefault}
+      style="animation-delay: ${0.05 + params.index * 0.04}s;"
+    >
+      <summary class="agent-skills__group-header">
+        <span class="agent-skills__group-chevron">${icons.chevronRight}</span>
+        <span class="agent-skills__group-label">${group.label}</span>
+        <div class="agent-skills__group-progress">
+          <div class="agent-skills__group-progress-fill" style="width: ${pct}%;"></div>
+        </div>
+        <span class="agent-skills__group-count">${enabledInGroup}/${group.skills.length}</span>
       </summary>
-      <div class="list skills-grid">
+      <div>
         ${group.skills.map((skill) =>
           renderAgentSkillRow(skill, {
             agentId: params.agentId,
@@ -487,34 +493,34 @@ function renderAgentSkillRow(
   const missing = computeSkillMissing(skill);
   const reasons = computeSkillReasons(skill);
   return html`
-    <div class="list-item agent-skill-row">
-      <div class="list-main">
-        <div class="list-title">${skill.emoji ? `${skill.emoji} ` : ""}${skill.name}</div>
-        <div class="list-sub">${skill.description}</div>
+    <div class="agent-skill">
+      <div class="agent-skill__info">
+        <div class="agent-skill__name">
+          ${skill.emoji ? html`<span class="agent-skill__name-emoji">${skill.emoji}</span>` : nothing}${skill.name}
+        </div>
+        ${skill.description ? html`<div class="agent-skill__desc">${skill.description}</div>` : nothing}
         ${renderSkillStatusChips({ skill })}
         ${
           missing.length > 0
-            ? html`<div class="muted" style="margin-top: 6px;">Missing: ${missing.join(", ")}</div>`
+            ? html`<div class="muted" style="margin-top: 4px; font-size: 12px;">Missing: ${missing.join(", ")}</div>`
             : nothing
         }
         ${
           reasons.length > 0
-            ? html`<div class="muted" style="margin-top: 6px;">Reason: ${reasons.join(", ")}</div>`
+            ? html`<div class="muted" style="margin-top: 4px; font-size: 12px;">Reason: ${reasons.join(", ")}</div>`
             : nothing
         }
       </div>
-      <div class="list-meta">
-        <label class="cfg-toggle">
-          <input
-            type="checkbox"
-            .checked=${enabled}
-            ?disabled=${!params.editable}
-            @change=${(e: Event) =>
-              params.onToggle(params.agentId, skill.name, (e.target as HTMLInputElement).checked)}
-          />
-          <span class="cfg-toggle__track"></span>
-        </label>
-      </div>
+      <label class="cfg-toggle">
+        <input
+          type="checkbox"
+          .checked=${enabled}
+          ?disabled=${!params.editable}
+          @change=${(e: Event) =>
+            params.onToggle(params.agentId, skill.name, (e.target as HTMLInputElement).checked)}
+        />
+        <span class="cfg-toggle__track"></span>
+      </label>
     </div>
   `;
 }

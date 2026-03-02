@@ -130,6 +130,12 @@
   --duration-normal: 200ms;
   --duration-slow: 350ms;
 
+  /* Atmosphere */
+  --atmosphere-grid-opacity: 0.025;
+  --atmosphere-glow-opacity: 0.05;
+  --atmosphere-glow-color: var(--sonance-blue);
+  --atmosphere-top-gradient: rgba(0, 163, 225, 0.08);
+
   color-scheme: dark;
 }
 
@@ -218,6 +224,12 @@
   --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   --glow-primary: rgba(0, 163, 225, 0.2);
   --glow-primary-subtle: rgba(0, 163, 225, 0.1);
+
+  /* Atmosphere - Light */
+  --atmosphere-grid-opacity: 0;
+  --atmosphere-glow-opacity: 0.03;
+  --atmosphere-glow-color: var(--sonance-charcoal);
+  --atmosphere-top-gradient: rgba(51, 63, 72, 0.03);
 
   color-scheme: light;
 }
@@ -370,6 +382,17 @@ select {
   }
 }
 
+@keyframes content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -399,6 +422,50 @@ select {
   }
 }
 
+@keyframes tab-underline-enter {
+  from {
+    opacity: 0;
+    transform: scaleX(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes agent-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cortex-orb-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 12px var(--agent-glow, rgba(0, 163, 225, 0.2));
+  }
+  50% {
+    box-shadow: 0 0 24px var(--agent-glow, rgba(0, 163, 225, 0.35));
+  }
+}
+
+@keyframes cortex-orb-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.08);
+  }
+}
+
 /* Stagger animation delays for grouped elements */
 .stagger-1 {
   animation-delay: 0ms;
@@ -417,6 +484,60 @@ select {
 }
 .stagger-6 {
   animation-delay: 250ms;
+}
+
+/* Dynamic stagger entrance: set --stagger-index on each element */
+.stagger-enter {
+  animation: rise 0.4s var(--ease-out) backwards;
+  animation-delay: calc(0.05s + var(--stagger-index, 0) * 0.04s);
+}
+
+.stagger-scale {
+  animation: scale-in 0.35s var(--ease-out) backwards;
+  animation-delay: calc(0.1s + var(--stagger-index, 0) * 0.04s);
+}
+
+/* Reduced motion: disable animations for sensitive users */
+@media (prefers-reduced-motion: reduce) {
+  .brand-orb__sphere,
+  .chat-thinking-orb,
+  .cortex-orb-sphere,
+  .cortex-orb-ring,
+  .cortex-orb-inner-ring {
+    animation: none !important;
+  }
+
+  .stagger-enter,
+  .stagger-scale {
+    animation-delay: 0s !important;
+    animation-duration: 0.01s !important;
+  }
+
+  .content-header,
+  .dashboard-grid > *,
+  .stat-grid > *,
+  .note-grid > * {
+    animation: none !important;
+  }
+
+  .card:hover,
+  .stat:hover,
+  .dashboard-widget:hover,
+  .nav-item:hover,
+  .agent-stat:hover,
+  .agent-card:hover {
+    transform: none !important;
+  }
+
+  .agent-hero-orb__sphere,
+  .agent-hero-orb__glow,
+  .agent-orb__sphere {
+    animation: none !important;
+  }
+
+  .agent-nav__tab.active::after {
+    animation: none !important;
+  }
 }
 
 /* Focus visible styles */
