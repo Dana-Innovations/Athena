@@ -1,0 +1,54 @@
+{
+  "channels": {
+    "msteams": {
+      "enabled": true,
+      "appId": "${MSTEAMS_APP_ID}",
+      "appPassword": "${MSTEAMS_APP_PASSWORD}",
+      "tenantId": "${MSTEAMS_TENANT_ID}",
+      "dmPolicy": "open",
+      "allowFrom": ["*"],
+      "groupPolicy": "open"
+    }
+  },
+  "plugins": {
+    "deny": [
+      "telegram",
+      "whatsapp",
+      "discord",
+      "irc",
+      "googlechat",
+      "slack",
+      "signal",
+      "imessage",
+      "bluebubbles",
+      "matrix",
+      "zalo",
+      "zalouser",
+      "feishu",
+      "line",
+      "nostr",
+      "twitch",
+      "mattermost",
+      "nextcloud-talk",
+      "tlon",
+      "voice-call"
+    ],
+    "entries": {
+      "msteams": {
+        "enabled": true
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-20250514"
+      }
+    }
+  },
+  "session": {
+    "compaction": {
+      "mode": "safeguard"
+    }
+  }
+}

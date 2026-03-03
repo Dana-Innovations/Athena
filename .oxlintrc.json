@@ -23,7 +23,9 @@
     "unicorn/require-post-message-target-origin": "off"
   },
   "ignorePatterns": [
+    ".msteams-dev-backup/",
     "assets/",
+    "deploy/",
     "dist/",
     "docs/_layouts/",
     "extensions/",

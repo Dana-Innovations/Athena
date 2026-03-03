@@ -1,0 +1,42 @@
+FROM node:22-bookworm
+
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+RUN corepack enable
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY ui/package.json ./ui/package.json
+COPY patches ./patches
+COPY scripts ./scripts
+
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+ENV OPENCLAW_PREFER_PNPM=1
+RUN pnpm ui:build
+
+# Install msteams plugin with patched SDK stubs
+COPY deploy/msteams-plugin /tmp/msteams-plugin
+RUN cp -r /tmp/msteams-plugin /app/extensions/msteams && rm -rf /tmp/msteams-plugin
+RUN cd /app/extensions/msteams && npm install --omit=dev --ignore-scripts 2>/dev/null || true
+
+# Install sonance-cortex plugin (no runtime deps needed)
+COPY extensions/sonance-cortex /app/extensions/sonance-cortex
+
+ENV NODE_ENV=production
+
+RUN chown -R node:node /app
+
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+COPY deploy/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+USER node
+
+ENTRYPOINT ["/app/entrypoint.sh"]

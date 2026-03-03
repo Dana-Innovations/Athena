@@ -1,0 +1,77 @@
+properties:
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 3978
+      allowInsecure: false
+      traffic:
+        - latestRevision: true
+          weight: 100
+    registries:
+      - server: sonanceathena.azurecr.io
+        username: sonanceathena
+        passwordSecretRef: sonanceathenaazurecrio-sonanceathena
+  template:
+    containers:
+      - name: athena-gateway
+        image: sonanceathena.azurecr.io/athena-gateway:v20260225214212
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: HOME
+            value: /home/node
+          - name: OPENCLAW_STATE_DIR
+            value: /home/node/.openclaw
+          - name: ATHENA_PROFILE_DIR
+            value: /home/node/.openclaw/profiles
+          - name: MSTEAMS_APP_ID
+            value: 78bdfd6c-d857-4c2b-b9ea-7ce57befe693
+          - name: MSTEAMS_APP_PASSWORD
+            secretRef: msteams-app-password
+          - name: MSTEAMS_TENANT_ID
+            value: ae4bbd35-942c-4c35-b794-274bc9cdd718
+          - name: CORTEX_API_KEY
+            secretRef: cortex-api-key
+      - name: cortex-sidecar
+        image: sonanceathena.azurecr.io/cortex:latest
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        env:
+          - name: CORTEX_APP_ENV
+            value: production
+          - name: CORTEX_LOG_LEVEL
+            value: INFO
+          - name: CORTEX_PORT
+            value: "8000"
+          - name: CORTEX_ANTHROPIC_API_KEY
+            secretRef: cortex-anthropic-api-key
+          - name: CORTEX_DEFAULT_MODEL
+            value: claude-sonnet-4-5-20250929
+          - name: CORTEX_MAX_TOKENS
+            value: "4096"
+          - name: CORTEX_SUPABASE_URL
+            value: https://bylqwhuiuqbljpnpkdlz.supabase.co
+          - name: CORTEX_SUPABASE_ANON_KEY
+            secretRef: cortex-supabase-anon-key
+          - name: CORTEX_SUPABASE_SERVICE_ROLE_KEY
+            secretRef: cortex-supabase-service-role-key
+          - name: SUPABASE_JWT_SECRET
+            secretRef: cortex-supabase-jwt-secret
+          - name: CORTEX_ENCRYPTION_KEY
+            secretRef: cortex-encryption-key
+          - name: CORTEX_GITHUB_ORG
+            value: Dana-Innovations
+          - name: CORTEX_MICROSOFT_CLIENT_ID
+            secretRef: cortex-microsoft-client-id
+          - name: CORTEX_MICROSOFT_CLIENT_SECRET
+            secretRef: cortex-microsoft-client-secret
+          - name: CORTEX_MICROSOFT_TENANT_ID
+            value: ae4bbd35-942c-4c35-b794-274bc9cdd718
+          - name: CORTEX_API_BASE_URL
+            value: https://cortex-bice.vercel.app
+    scale:
+      minReplicas: 1
+      maxReplicas: 1
