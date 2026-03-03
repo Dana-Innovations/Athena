@@ -13,6 +13,11 @@ import type {
   ApplyResult,
   DiffResult,
   FileDiff,
+  FullReviewResult,
+  FullReviewRelevantUpdate,
+  FullReviewIrrelevantUpdate,
+  FullReviewRiskyUpdate,
+  FullReviewInstruction,
   RiskyCommitAnalysis,
   SafeCommitAnalysis,
   UpstreamCategory,
@@ -35,6 +40,8 @@ export type UpstreamSyncViewProps = {
   analysisLoading: boolean;
   applyResult: ApplyResult | null;
   applyLoading: boolean;
+  fullReview: FullReviewResult | null;
+  fullReviewLoading: boolean;
   onRefresh: () => void;
   onFetch: () => void;
   onToggleCommit: (hash: string) => void;
@@ -45,6 +52,7 @@ export type UpstreamSyncViewProps = {
   onAnalyze: () => void;
   onApply: (opts: { commits: string[]; dryRun: boolean }) => void;
   onDismissApplyResult: () => void;
+  onFullReview: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +105,30 @@ function usefulnessBadge(u?: Usefulness) {
   }
   const s = USEFULNESS_CSS[u] ?? USEFULNESS_CSS.medium;
   return html`<span style="font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); background: ${s.bg}; color: ${s.color}; border: 1px solid ${s.border}; white-space: nowrap;">${USEFULNESS_LABELS[u]}</span>`;
+}
+
+const IMPORTANCE_LABELS: Record<string, string> = {
+  critical: "Critical",
+  high: "High Priority",
+  medium: "Worth Installing",
+  low: "Low Priority",
+  skip: "Skip",
+};
+
+const IMPORTANCE_CSS: Record<string, { color: string; bg: string; border: string }> = {
+  critical: { color: "var(--danger)", bg: "var(--danger-subtle)", border: "var(--danger)" },
+  high: { color: "var(--warn)", bg: "var(--warn-subtle)", border: "var(--warn)" },
+  medium: { color: "var(--accent)", bg: "var(--accent-subtle)", border: "var(--accent)" },
+  low: { color: "var(--muted)", bg: "var(--secondary)", border: "var(--border)" },
+  skip: { color: "var(--muted)", bg: "var(--secondary)", border: "var(--border)" },
+};
+
+function importanceBadge(importance?: string) {
+  if (!importance) {
+    return nothing;
+  }
+  const s = IMPORTANCE_CSS[importance] ?? IMPORTANCE_CSS.medium;
+  return html`<span style="font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); background: ${s.bg}; color: ${s.color}; border: 1px solid ${s.border}; font-weight: 600; white-space: nowrap;">${IMPORTANCE_LABELS[importance] ?? importance}</span>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -752,6 +784,248 @@ function renderApplyResult(result: ApplyResult, onDismiss: () => void) {
 }
 
 // ---------------------------------------------------------------------------
+// Full AI Review Panel
+// ---------------------------------------------------------------------------
+
+function renderFullReviewButton(props: UpstreamSyncViewProps) {
+  const hasUpdates = (props.commits?.commits ?? []).length > 0;
+  if (!hasUpdates) {
+    return nothing;
+  }
+
+  return html`
+    <div class="card" style="margin-bottom: 16px; background: linear-gradient(135deg, var(--glass-bg), var(--accent-subtle)); border: 1px solid var(--accent);">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">
+            ${props.fullReview ? "AI Review Complete" : "AI-Powered Full Review"}
+          </div>
+          <div class="muted" style="font-size: 13px;">
+            ${
+              props.fullReview
+                ? `Reviewed ${props.fullReview.totalReviewed} updates. ${props.fullReview.relevantUpdates.length} relevant, ${props.fullReview.riskyUpdates.length} need care, ${props.fullReview.irrelevantUpdates.length} can be skipped.`
+                : "Let the AI read every update and tell you exactly which ones matter for Athena, which to skip, and how to safely install them."
+            }
+          </div>
+        </div>
+        <button class="btn primary" ?disabled=${props.fullReviewLoading || props.loading}
+          @click=${() => props.onFullReview()}
+          style="white-space: nowrap;">
+          ${props.fullReviewLoading ? "Reviewing all updates..." : props.fullReview ? "Re-run Full Review" : "Run Full AI Review"}
+        </button>
+      </div>
+      ${
+        props.fullReviewLoading
+          ? html`
+              <div style="margin-top: 14px">
+                <div class="muted" style="font-size: 13px; margin-bottom: 8px">
+                  The AI is reading through every update, understanding what each one does, and checking it
+                  against Athena's customizations. This usually takes 30-60 seconds for a thorough review.
+                </div>
+                <div style="height: 3px; background: var(--border); border-radius: 2px; overflow: hidden">
+                  <div
+                    style="
+                      height: 100%;
+                      width: 40%;
+                      background: var(--accent);
+                      border-radius: 2px;
+                      animation: shimmer 1.5s ease-in-out infinite;
+                    "
+                  ></div>
+                </div>
+              </div>
+            `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+function renderRelevantUpdate(u: FullReviewRelevantUpdate) {
+  return html`
+    <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px;">
+        <span style="color: var(--ok); font-size: 14px;" title="Safe to install">&#10003;</span>
+        ${importanceBadge(u.importance)}
+        ${typeBadge(u.type)}
+        <span style="font-size: 13px; font-weight: 500;">${u.plainSummary}</span>
+      </div>
+      <div class="muted" style="font-size: 12px; padding-left: 22px;">${u.whyItMatters}</div>
+      <div class="mono muted" style="font-size: 11px; padding-left: 22px; margin-top: 2px;">${u.hash} — ${u.message}</div>
+    </div>
+  `;
+}
+
+function renderRiskyUpdate(u: FullReviewRiskyUpdate) {
+  return html`
+    <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px;">
+        <span style="color: var(--warn); font-size: 14px;">&#9888;</span>
+        ${importanceBadge(u.importance)}
+        ${typeBadge(u.type)}
+        <span style="font-size: 13px; font-weight: 500;">${u.plainSummary}</span>
+      </div>
+      <div style="font-size: 12px; padding-left: 22px; color: var(--warn); margin-bottom: 2px;">${u.riskExplanation}</div>
+      <div class="muted" style="font-size: 12px; padding-left: 22px;">${u.whyItMatters}</div>
+      ${
+        u.conflictFiles.length > 0
+          ? html`<div style="padding-left: 22px; margin-top: 4px;">
+            <span class="muted" style="font-size: 11px;">Conflicts with: </span>
+            ${u.conflictFiles.map(
+              (f) =>
+                html`<span class="mono" style="font-size: 11px; color: var(--warn); margin-right: 6px;">${f}</span>`,
+            )}
+          </div>`
+          : nothing
+      }
+      <div class="mono muted" style="font-size: 11px; padding-left: 22px; margin-top: 2px;">${u.hash} — ${u.message}</div>
+    </div>
+  `;
+}
+
+function renderIrrelevantUpdate(u: FullReviewIrrelevantUpdate) {
+  return html`
+    <div style="padding: 6px 0; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+        <span style="color: var(--muted); font-size: 13px;">&#8212;</span>
+        ${typeBadge(u.type)}
+        <span class="muted" style="font-size: 12px;">${u.plainSummary}</span>
+      </div>
+      <div class="muted" style="font-size: 11px; padding-left: 22px;">${u.skipReason}</div>
+    </div>
+  `;
+}
+
+function renderUpdateInstructions(instructions: FullReviewInstruction[]) {
+  if (instructions.length === 0) {
+    return nothing;
+  }
+
+  return html`
+    <div class="card" style="margin-bottom: 16px;">
+      <div style="font-size: 15px; font-weight: 600; margin-bottom: 14px;">
+        How to Update Safely
+      </div>
+      ${instructions.map(
+        (inst) => html`
+        <div style="margin-bottom: 16px; padding: 14px; background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius-md);">
+          <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <span style="
+              background: ${inst.phase === 1 ? "var(--ok)" : inst.phase === 2 ? "var(--warn)" : "var(--accent)"};
+              color: var(--primary-foreground);
+              width: 28px; height: 28px; border-radius: var(--radius-full);
+              display: flex; align-items: center; justify-content: center;
+              font-size: 13px; font-weight: 700;
+            ">${inst.phase}</span>
+            <div>
+              <div style="font-size: 14px; font-weight: 600;">${inst.title}</div>
+              <div class="muted" style="font-size: 12px;">${inst.description}</div>
+            </div>
+            ${
+              inst.hashes.length > 0
+                ? html`<span class="chip" style="margin-left: auto; font-size: 11px;">${inst.hashes.length} update${inst.hashes.length !== 1 ? "s" : ""}</span>`
+                : nothing
+            }
+          </div>
+          <ol style="margin: 0; padding-left: 40px; font-size: 13px; line-height: 1.8; color: var(--text);">
+            ${inst.steps.map((step) => html`<li>${step}</li>`)}
+          </ol>
+        </div>
+      `,
+      )}
+    </div>
+  `;
+}
+
+function renderFullReviewResults(review: FullReviewResult) {
+  return html`
+    <!-- AI Summary -->
+    <div class="card" style="margin-bottom: 16px;">
+      <div style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">AI Assessment</div>
+      <div style="padding: 14px; background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 14px; line-height: 1.7; color: var(--text);">
+        ${review.summary}
+      </div>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
+        ${
+          review.relevantUpdates.length > 0
+            ? html`<div style="display: flex; align-items: center; gap: 6px;">
+              <span style="color: var(--ok); font-size: 16px; font-weight: 700;">&#10003;</span>
+              <span style="font-size: 13px;"><strong>${review.relevantUpdates.length}</strong> worth installing</span>
+            </div>`
+            : nothing
+        }
+        ${
+          review.riskyUpdates.length > 0
+            ? html`<div style="display: flex; align-items: center; gap: 6px;">
+              <span style="color: var(--warn); font-size: 16px;">&#9888;</span>
+              <span style="font-size: 13px;"><strong>${review.riskyUpdates.length}</strong> need${review.riskyUpdates.length === 1 ? "s" : ""} careful review</span>
+            </div>`
+            : nothing
+        }
+        ${
+          review.irrelevantUpdates.length > 0
+            ? html`<div style="display: flex; align-items: center; gap: 6px;">
+              <span style="color: var(--muted); font-size: 14px;">&#8212;</span>
+              <span style="font-size: 13px;"><strong>${review.irrelevantUpdates.length}</strong> not relevant (safe to skip)</span>
+            </div>`
+            : nothing
+        }
+      </div>
+    </div>
+
+    <!-- Update Instructions (how to safely update) -->
+    ${renderUpdateInstructions(review.updateInstructions)}
+
+    <!-- Relevant updates -->
+    ${
+      review.relevantUpdates.length > 0
+        ? html`
+        <div class="card" style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 15px; font-weight: 600; color: var(--ok);">Recommended Updates</span>
+            <span class="chip chip-ok">${review.relevantUpdates.length}</span>
+          </div>
+          <div class="muted" style="font-size: 13px; margin-bottom: 8px;">These updates are relevant to Athena and the AI recommends installing them.</div>
+          ${review.relevantUpdates.map(renderRelevantUpdate)}
+        </div>`
+        : nothing
+    }
+
+    <!-- Risky updates -->
+    ${
+      review.riskyUpdates.length > 0
+        ? html`
+        <div class="card" style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 15px; font-weight: 600; color: var(--warn);">Updates Needing Manual Review</span>
+            <span class="chip chip-warn">${review.riskyUpdates.length}</span>
+          </div>
+          <div class="muted" style="font-size: 13px; margin-bottom: 8px;">These updates touch files that Athena has customized. They may still be worth installing, but need your attention.</div>
+          ${review.riskyUpdates.map(renderRiskyUpdate)}
+        </div>`
+        : nothing
+    }
+
+    <!-- Irrelevant updates (collapsed) -->
+    ${
+      review.irrelevantUpdates.length > 0
+        ? html`
+        <details style="margin-bottom: 16px;">
+          <summary class="card" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 14px; font-weight: 500;">Updates You Can Skip</span>
+            <span class="chip" style="font-size: 11px;">${review.irrelevantUpdates.length} not relevant</span>
+          </summary>
+          <div class="card" style="margin-top: -1px; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0;">
+            <div class="muted" style="font-size: 13px; margin-bottom: 8px;">These updates are unlikely to benefit Athena — they're either for features you don't use or are minor internal changes.</div>
+            ${review.irrelevantUpdates.map(renderIrrelevantUpdate)}
+          </div>
+        </details>`
+        : nothing
+    }
+  `;
+}
+
+// ---------------------------------------------------------------------------
 // Category breakdown (collapsed)
 // ---------------------------------------------------------------------------
 
@@ -834,6 +1108,10 @@ export function renderUpstreamSync(props: UpstreamSyncViewProps) {
     ${props.error ? html`<div class="callout danger" style="margin-bottom: 16px;">${props.error}</div>` : nothing}
 
     ${renderStatusOverview(props.status)}
+
+    ${renderFullReviewButton(props)}
+    ${props.fullReview ? renderFullReviewResults(props.fullReview) : nothing}
+
     ${props.commits ? renderProtectedFiles(props.commits.conflicts) : nothing}
     ${props.commits ? renderNewTools(props.commits.newTools) : nothing}
 

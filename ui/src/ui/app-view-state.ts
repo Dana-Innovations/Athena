@@ -23,6 +23,7 @@ import type {
   DiffResult,
   AnalysisResult,
   ApplyResult,
+  FullReviewResult,
 } from "./controllers/upstream-sync.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -247,6 +248,8 @@ export type AppViewState = {
   upstreamAnalysisLoading: boolean;
   upstreamApplyResult: ApplyResult | null;
   upstreamApplyLoading: boolean;
+  upstreamFullReview: FullReviewResult | null;
+  upstreamFullReviewLoading: boolean;
   cronLoading: boolean;
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;

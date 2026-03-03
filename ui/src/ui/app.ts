@@ -345,6 +345,9 @@ export class OpenClawApp extends LitElement {
   @state() upstreamAnalysisLoading = false;
   @state() upstreamApplyResult: import("./controllers/upstream-sync.js").ApplyResult | null = null;
   @state() upstreamApplyLoading = false;
+  @state() upstreamFullReview: import("./controllers/upstream-sync.js").FullReviewResult | null =
+    null;
+  @state() upstreamFullReviewLoading = false;
 
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];

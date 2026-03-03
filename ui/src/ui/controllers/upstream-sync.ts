@@ -94,6 +94,54 @@ export type ApplyResult = {
   dryRun: boolean;
 };
 
+export type FullReviewRelevantUpdate = {
+  hash: string;
+  message: string;
+  importance: "critical" | "high" | "medium";
+  type: UpdateType;
+  plainSummary: string;
+  whyItMatters: string;
+  safe: boolean;
+  conflictFiles: string[];
+};
+
+export type FullReviewIrrelevantUpdate = {
+  hash: string;
+  message: string;
+  importance: "low" | "skip";
+  type: UpdateType;
+  plainSummary: string;
+  skipReason: string;
+};
+
+export type FullReviewRiskyUpdate = {
+  hash: string;
+  message: string;
+  importance: "critical" | "high" | "medium";
+  type: UpdateType;
+  plainSummary: string;
+  whyItMatters: string;
+  conflictFiles: string[];
+  riskExplanation: string;
+};
+
+export type FullReviewInstruction = {
+  phase: number;
+  title: string;
+  description: string;
+  hashes: string[];
+  steps: string[];
+};
+
+export type FullReviewResult = {
+  summary: string;
+  relevantUpdates: FullReviewRelevantUpdate[];
+  irrelevantUpdates: FullReviewIrrelevantUpdate[];
+  riskyUpdates: FullReviewRiskyUpdate[];
+  updateInstructions: FullReviewInstruction[];
+  totalReviewed: number;
+};
+
 export type UpstreamSyncState = {
   upstreamSyncLoading: boolean;
   upstreamSyncError: string | null;
@@ -106,6 +154,8 @@ export type UpstreamSyncState = {
   upstreamAnalysisLoading: boolean;
   upstreamApplyResult: ApplyResult | null;
   upstreamApplyLoading: boolean;
+  upstreamFullReview: FullReviewResult | null;
+  upstreamFullReviewLoading: boolean;
   client: {
     request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   } | null;
@@ -191,6 +241,33 @@ export async function analyzeCommits(state: UpstreamSyncState): Promise<void> {
     state.upstreamSyncError = `Analysis failed: ${String(err)}`;
   } finally {
     state.upstreamAnalysisLoading = false;
+  }
+}
+
+export async function reviewAllUpdates(state: UpstreamSyncState): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+
+  state.upstreamFullReviewLoading = true;
+  state.upstreamFullReview = null;
+  state.upstreamSyncError = null;
+
+  try {
+    const result = (await state.client.request("sonance.upstream.reviewAll")) as FullReviewResult;
+    state.upstreamFullReview = result;
+
+    // Auto-select recommended updates from Phase 1 instructions
+    if (result.updateInstructions.length > 0) {
+      const phase1Hashes = result.updateInstructions[0].hashes ?? [];
+      if (phase1Hashes.length > 0) {
+        state.upstreamSelectedCommits = new Set(phase1Hashes);
+      }
+    }
+  } catch (err) {
+    state.upstreamSyncError = `Full review failed: ${String(err)}`;
+  } finally {
+    state.upstreamFullReviewLoading = false;
   }
 }
 

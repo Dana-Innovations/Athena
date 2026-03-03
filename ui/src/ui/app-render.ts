@@ -70,6 +70,7 @@ import {
   loadCommitDiff,
   analyzeCommits,
   applyCommits,
+  reviewAllUpdates,
 } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
 import { normalizeBasePath, TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
@@ -489,6 +490,8 @@ export function renderApp(state: AppViewState) {
                 analysisLoading: state.upstreamAnalysisLoading,
                 applyResult: state.upstreamApplyResult,
                 applyLoading: state.upstreamApplyLoading,
+                fullReview: state.upstreamFullReview,
+                fullReviewLoading: state.upstreamFullReviewLoading,
                 onRefresh: () => loadUpstreamStatus(state),
                 onFetch: () => loadUpstreamStatus(state, { fetch: true }),
                 onToggleCommit: (hash: string) => {
@@ -527,6 +530,7 @@ export function renderApp(state: AppViewState) {
                 onDismissApplyResult: () => {
                   state.upstreamApplyResult = null;
                 },
+                onFullReview: () => void reviewAllUpdates(state),
               })
             : nothing
         }
