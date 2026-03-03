@@ -6,6 +6,7 @@ import { emitAgentEvent } from "../infra/agent-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { InlineCodeState } from "../markdown/code-spans.js";
 import { buildCodeSpanIndex, createInlineCodeState } from "../markdown/code-spans.js";
+import { pluginUserStore } from "../plugins/user-context.js";
 import { EmbeddedBlockChunker } from "./pi-embedded-block-chunker.js";
 import {
   isMessagingToolDuplicateNormalized,
@@ -633,7 +634,16 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     getCompactionCount: () => compactionCount,
   };
 
-  const sessionUnsubscribe = params.session.subscribe(createEmbeddedPiSessionEventHandler(ctx));
+  // Capture user context at subscription time so it propagates into event
+  // callbacks that run in the HTTP stream's async context (where the
+  // original AsyncLocalStorage store is not available).
+  const capturedUserCtx = pluginUserStore.getStore();
+  const rawHandler = createEmbeddedPiSessionEventHandler(ctx);
+  const handler = capturedUserCtx
+    ? (evt: Parameters<typeof rawHandler>[0]) =>
+        pluginUserStore.run(capturedUserCtx, () => rawHandler(evt))
+    : rawHandler;
+  const sessionUnsubscribe = params.session.subscribe(handler);
 
   const unsubscribe = () => {
     if (state.unsubscribed) {
