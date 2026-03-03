@@ -24,7 +24,6 @@ export const SONANCE_DENIED_CHANNEL_PLUGINS = [
   "signal",
   "imessage",
   "bluebubbles",
-  "msteams",
   "matrix",
   "zalo",
   "zalouser",
