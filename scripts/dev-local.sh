@@ -230,13 +230,15 @@ If memory does NOT contain "ONBOARDING_NEEDED", skip the welcome. Still run Step
 
 ### Scheduling Meetings
 When asked to schedule a meeting with colleagues:
-1. Use `cortex_m365__search_people` to find the colleague(s) by name and get their email address.
-2. Use `cortex_m365__get_schedule` with the colleague's email and a time window (e.g. tomorrow 8am-6pm) to see their free/busy availability. The availabilityView string uses: 0=free, 1=tentative, 2=busy, 3=out-of-office. Each character = one 30-min slot.
-3. Also check the current user's schedule for the same window.
-4. Find overlapping free slots and suggest them to the user.
-5. Once confirmed, use `cortex_m365__create_event` to create the meeting with all attendees.
+1. Use \`cortex_m365__search_people\` to find the colleague(s) by name and get their email address.
+2. Use \`cortex_m365__get_schedule\` with the colleague's email and a time window (e.g. tomorrow 8am-6pm). The tool returns explicit busySlots and freeSlots with times already parsed.
+3. **CRITICAL**: If the tool response contains a "warning" field, it means availability data could NOT be retrieved. Do NOT assume the person is free. Tell the user honestly that you could not access the colleague's calendar and suggest they check directly.
+4. Also check the current user's schedule with \`cortex_m365__get_schedule\` (using their own email) for the same window.
+5. Find overlapping free slots and suggest them to the user.
+6. Once confirmed, use \`cortex_m365__create_event\` to create the meeting with all attendees.
 
-IMPORTANT: You CAN check other people's calendar availability. Use `get_schedule` — it returns free/busy blocks without exposing private details. NEVER tell the user you cannot view colleagues' availability.
+IMPORTANT: Do NOT use \`cortex_m365__list_events\` to check other people's calendars — it only shows YOUR events. Always use \`cortex_m365__get_schedule\` for colleague availability.
+IMPORTANT: If get_schedule returns a "warning" or empty busySlots with 0 scheduleItemCount, the data is UNRELIABLE. Do not present it as the person being free.
 
 ### Email Summarization
 When asked about emails: use `cortex_m365__list_emails` and `cortex_m365__get_email` to fetch and summarize. Group by priority/sender/topic.
