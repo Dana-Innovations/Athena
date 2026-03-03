@@ -76,7 +76,13 @@ export type GatewayControlUiConfig = {
   dangerouslyDisableDeviceAuth?: boolean;
 };
 
-export type GatewayAuthMode = "none" | "token" | "password" | "trusted-proxy" | "sonance-sso";
+export type GatewayAuthMode =
+  | "none"
+  | "token"
+  | "password"
+  | "trusted-proxy"
+  | "sonance-sso"
+  | "cortex";
 
 /**
  * Configuration for trusted reverse proxy authentication.
@@ -126,6 +132,55 @@ export type GatewayAuthConfig = {
    * JWT and extracts user identity claims.
    */
   sonanceSso?: SonanceSsoConfig;
+  /**
+   * Cortex authentication configuration.
+   * Required when mode is "cortex". The Control UI handles SSO login via
+   * Cortex employee auth endpoints, obtains a JWT, and sends it with the
+   * WebSocket connect handshake. The gateway validates the JWT using the
+   * same logic as sonance-sso.
+   */
+  cortex?: CortexAuthConfig;
+};
+
+export type CortexAuthConfig = {
+  /**
+   * Cortex API base URL (e.g. "https://cortex.sonance.ai").
+   * Used by the Control UI for SSO initiation/polling, and to derive
+   * the default JWKS URI for JWT validation.
+   */
+  cortexUrl: string;
+  /** Supabase project URL for direct auth from the Control UI. */
+  supabaseUrl?: string;
+  /** Supabase anonymous/publishable key for direct auth from the Control UI. */
+  supabaseAnonKey?: string;
+  /** SSO email domain for Supabase SAML SSO (e.g. "sonance.com"). */
+  ssoDomain?: string;
+  /** AI Intranet base URL for redirect-based SSO (e.g. "https://aiintranet.sonance.com"). */
+  aiIntranetUrl?: string;
+  /** Application ID in the AI Intranet applications table. */
+  appId?: string;
+  /** Application API key for server-side central-check validation. */
+  appApiKey?: string;
+  /**
+   * JWKS URI for JWT signature verification.
+   * Defaults to "{cortexUrl}/.well-known/jwks.json" if omitted.
+   */
+  jwksUri?: string;
+  /**
+   * Shared symmetric secret for HS256 JWT verification (dev/testing).
+   * Prefer JWKS in production.
+   */
+  jwtSecret?: string;
+  /** Expected JWT `iss` (issuer) claim. Rejected if present and mismatched. */
+  issuer?: string;
+  /** Expected JWT `aud` (audience) claim. Rejected if present and mismatched. */
+  audience?: string;
+  /** JWT claim path for the user id (default: "sub"). */
+  userIdClaim?: string;
+  /** JWT claim path for the user email (default: "email"). */
+  emailClaim?: string;
+  /** JWT claim path for the user role (default: "role"). */
+  roleClaim?: string;
 };
 
 export type SonanceSsoConfig = {

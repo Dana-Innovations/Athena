@@ -298,3 +298,27 @@ img.chat-avatar {
     transform: translateY(0);
   }
 }
+
+/* ===========================================
+   Thinking Orb - shown during streaming
+   =========================================== */
+
+.chat-thinking-orb {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%,
+    #4dc9ff 0%, #00A3E1 50%, #0070a8 100%);
+  box-shadow:
+    0 0 16px rgba(0, 163, 225, 0.3),
+    0 0 32px rgba(0, 163, 225, 0.15);
+  animation: chat-orb-breathe 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+  margin-left: 44px;
+  margin-bottom: 8px;
+}
+
+@keyframes chat-orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}

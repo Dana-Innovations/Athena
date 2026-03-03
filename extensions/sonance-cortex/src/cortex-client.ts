@@ -147,6 +147,74 @@ export type ApolloUserBreakdown = {
   cost: number;
 };
 
+// ── Cortex Skills types ──────────────────────────────────────────────
+
+export type CortexSkillSummary = {
+  name: string;
+  display_name: string;
+  description: string;
+  category: string;
+  mcp_name: string;
+  rule_count: number;
+  enabled: boolean;
+};
+
+export type CortexSkillListResponse = {
+  skills: CortexSkillSummary[];
+  total: number;
+};
+
+export type CortexSkillRule = {
+  id: string;
+  title: string;
+  description: string;
+  priority: string;
+  correct_example: string | null;
+  incorrect_example: string | null;
+  applicable_tools: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CortexSkillDefinition = {
+  name: string;
+  display_name: string;
+  description: string;
+  category: string;
+  mcp_name: string;
+  version: string;
+  author: string | null;
+  enabled_by_default: boolean;
+  metadata: Record<string, unknown>;
+};
+
+export type CortexSkillDetailResponse = {
+  definition: CortexSkillDefinition;
+  rules: CortexSkillRule[];
+  user_enabled: boolean;
+  user_settings: Record<string, unknown>;
+};
+
+export type CortexSkillSettingsRequest = {
+  enabled?: boolean;
+  notify_advisories?: boolean;
+  custom_settings?: Record<string, unknown>;
+};
+
+export type CortexSkillSettingsResponse = {
+  skill_name: string;
+  user_id: string;
+  enabled: boolean;
+  notify_advisories: boolean;
+  custom_settings: Record<string, unknown>;
+  updated_at: string;
+};
+
+export type CortexSkillsPromptResponse = {
+  prompt: string;
+  skill_count: number;
+  rule_count: number;
+};
+
 /** Normalized shape that the Athena UI expects. */
 export type ApolloUsageSummary = {
   totalRequests: number;
@@ -568,5 +636,158 @@ export class CortexClient {
     users.sort((a, b) => b.cost - a.cost);
 
     return { totalRequests, totalInputTokens, totalOutputTokens, totalCost, users };
+  }
+
+  // ── Skills (Praxis) ─────────────────────────────────────────────────
+
+  /** List all Cortex skills with optional filtering. */
+  async listSkills(params?: {
+    category?: string;
+    mcp?: string;
+    enabledOnly?: boolean;
+  }): Promise<CortexSkillListResponse> {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set("category", params.category);
+    if (params?.mcp) qs.set("mcp", params.mcp);
+    if (params?.enabledOnly) qs.set("enabled_only", "true");
+    const query = qs.toString();
+    return this.request<CortexSkillListResponse>(`/api/v1/skills${query ? `?${query}` : ""}`);
+  }
+
+  /** Get detailed info for a single Cortex skill including rules. */
+  async getSkillDetail(skillName: string): Promise<CortexSkillDetailResponse> {
+    return this.request<CortexSkillDetailResponse>(
+      `/api/v1/skills/${encodeURIComponent(skillName)}`,
+    );
+  }
+
+  /** Update user-specific settings for a Cortex skill. */
+  async updateSkillSettings(
+    skillName: string,
+    settings: CortexSkillSettingsRequest,
+  ): Promise<CortexSkillSettingsResponse> {
+    return this.request<CortexSkillSettingsResponse>(
+      `/api/v1/skills/${encodeURIComponent(skillName)}/settings`,
+      { method: "PUT", body: settings },
+    );
+  }
+
+  // ── Admin (read-only visibility) ──────────────────────────────────────
+
+  /** Get the current user's profile (including role) from cortex_users. */
+  async getUserProfile(email: string): Promise<{
+    user_id: string;
+    email: string;
+    full_name: string | null;
+    role: string;
+    status: string;
+    department?: string;
+    job_title?: string;
+    mcp_access?: Record<string, unknown>;
+  }> {
+    return this.request(`/api/v1/auth/me?user_email=${encodeURIComponent(email)}`);
+  }
+
+  /** List all users (admin-only). */
+  async listUsers(): Promise<{
+    users: Array<{
+      id: string;
+      email: string;
+      full_name: string | null;
+      department: string | null;
+      job_title: string | null;
+      role: string;
+      status: string;
+      mcp_access: Record<string, unknown> | null;
+      last_active_at: string | null;
+      created_at: string;
+    }>;
+    total: number;
+  }> {
+    return this.request("/api/v1/admin/users");
+  }
+
+  /** Get cross-user usage summary (admin-only). */
+  async getAdminUsage(params?: { startDate?: string; endDate?: string; limit?: number }): Promise<{
+    summary: {
+      totalRequests: number;
+      totalTokens: number;
+      totalCostUsd: number;
+      userBreakdown: Array<{
+        userId: string;
+        email: string;
+        displayName: string | null;
+        totalRequests: number;
+        totalTokens: number;
+        totalCostUsd: number;
+        lastRequestAt: string | null;
+      }>;
+      modelBreakdown: Array<{
+        model: string;
+        requests: number;
+        tokens: number;
+        costUsd: number;
+      }>;
+      dailyTotals: Array<{
+        date: string;
+        requests: number;
+        tokens: number;
+        costUsd: number;
+      }>;
+    };
+    details: Array<{
+      id: string;
+      userId: string;
+      email: string;
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+      keySource: string;
+      createdAt: string;
+    }>;
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.startDate) qs.set("start_date", params.startDate);
+    if (params?.endDate) qs.set("end_date", params.endDate);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const query = qs.toString();
+    return this.request(`/api/v1/admin/usage${query ? `?${query}` : ""}`);
+  }
+
+  /** Get MCP access matrix (admin-only). */
+  async getAdminMcpAccess(): Promise<{
+    mcps: Array<{
+      name: string;
+      displayName: string;
+      toolCount: number;
+      description: string;
+    }>;
+    userAccess: Array<{
+      userId: string;
+      email: string;
+      displayName: string | null;
+      mcpAccess: Record<string, { enabled: boolean; connectedAt?: string }>;
+      connectionStatus: string;
+    }>;
+  }> {
+    return this.request("/api/v1/admin/mcp-access");
+  }
+
+  /** Fetch the LLM-ready skills prompt for system prompt injection. */
+  async getSkillsPrompt(params?: {
+    minPriority?: string;
+    maxRulesPerSkill?: number;
+    includeExamples?: boolean;
+  }): Promise<CortexSkillsPromptResponse> {
+    const qs = new URLSearchParams();
+    if (params?.minPriority) qs.set("min_priority", params.minPriority);
+    if (params?.maxRulesPerSkill != null)
+      qs.set("max_rules_per_skill", String(params.maxRulesPerSkill));
+    if (params?.includeExamples != null) qs.set("include_examples", String(params.includeExamples));
+    const query = qs.toString();
+    return this.request<CortexSkillsPromptResponse>(
+      `/api/v1/skills/prompt${query ? `?${query}` : ""}`,
+    );
   }
 }

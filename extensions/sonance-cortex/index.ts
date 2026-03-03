@@ -156,6 +156,36 @@ const cortexPlugin = {
     }
 
     // -----------------------------------------------------------------------
+    // 2c. Cortex Skills Provider — inject best-practice rules into system prompt
+    // -----------------------------------------------------------------------
+
+    let cortexSkillsTeardown: (() => void) | undefined;
+
+    import("../../src/agents/cortex-skills.js")
+      .then(({ setSonanceCortexSkillsProvider }) => {
+        cortexSkillsTeardown = setSonanceCortexSkillsProvider(async () => {
+          try {
+            const result = await client.getSkillsPrompt({
+              minPriority: "medium",
+              maxRulesPerSkill: 10,
+              includeExamples: false,
+            });
+            return {
+              prompt: result.prompt,
+              skillCount: result.skill_count,
+              ruleCount: result.rule_count,
+            };
+          } catch {
+            return null;
+          }
+        });
+        api.logger.info("[sonance-cortex] Cortex skills provider registered");
+      })
+      .catch((err) => {
+        api.logger.warn(`[sonance-cortex] failed to register skills provider: ${String(err)}`);
+      });
+
+    // -----------------------------------------------------------------------
     // 2b. Apollo SDK-compat fetch interceptor
     // -----------------------------------------------------------------------
     // The Anthropic SDK sends `system` as an array of content blocks (with
@@ -290,6 +320,7 @@ const cortexPlugin = {
         apolloCompatTeardown?.();
         auditTeardown?.();
         keyResolverTeardown?.();
+        cortexSkillsTeardown?.();
         await auditSink?.stop();
         for (const sc of stdioClients) {
           await sc.stop().catch(() => {});
@@ -425,6 +456,123 @@ const cortexPlugin = {
           endDate: typeof params?.endDate === "string" ? params.endDate : undefined,
         });
         respond(true, dashboard);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // 8. Cortex Skills Gateway Methods
+    // -----------------------------------------------------------------------
+
+    api.registerGatewayMethod("sonance.skills.list", async ({ params, respond }) => {
+      try {
+        const result = await client.listSkills({
+          category: typeof params?.category === "string" ? params.category : undefined,
+          mcp: typeof params?.mcp === "string" ? params.mcp : undefined,
+          enabledOnly: typeof params?.enabledOnly === "boolean" ? params.enabledOnly : undefined,
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.skills.detail", async ({ params, respond }) => {
+      const skillName = typeof params?.skillName === "string" ? params.skillName.trim() : "";
+      if (!skillName) {
+        respond(false, { error: "skillName is required" });
+        return;
+      }
+      try {
+        const result = await client.getSkillDetail(skillName);
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.skills.prompt", async ({ params, respond }) => {
+      try {
+        const result = await client.getSkillsPrompt({
+          minPriority: typeof params?.minPriority === "string" ? params.minPriority : undefined,
+          maxRulesPerSkill:
+            typeof params?.maxRulesPerSkill === "number" ? params.maxRulesPerSkill : undefined,
+          includeExamples:
+            typeof params?.includeExamples === "boolean" ? params.includeExamples : undefined,
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // 9. Admin Gateway Methods (read-only visibility)
+    // -----------------------------------------------------------------------
+
+    api.registerGatewayMethod("sonance.auth.me", async ({ params, respond }) => {
+      const email = typeof params?.email === "string" ? params.email.trim() : "";
+      if (!email) {
+        respond(false, { error: "email is required" });
+        return;
+      }
+      try {
+        const result = await client.getUserProfile(email);
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.users", async ({ respond }) => {
+      try {
+        const result = await client.listUsers();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.usage", async ({ params, respond }) => {
+      try {
+        const result = await client.getAdminUsage({
+          startDate: typeof params?.startDate === "string" ? params.startDate : undefined,
+          endDate: typeof params?.endDate === "string" ? params.endDate : undefined,
+          limit: typeof params?.limit === "number" ? params.limit : undefined,
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.mcp_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminMcpAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.skills.update_settings", async ({ params, respond }) => {
+      const skillName = typeof params?.skillName === "string" ? params.skillName.trim() : "";
+      if (!skillName) {
+        respond(false, { error: "skillName is required" });
+        return;
+      }
+      try {
+        const result = await client.updateSkillSettings(skillName, {
+          enabled: typeof params?.enabled === "boolean" ? params.enabled : undefined,
+          notify_advisories:
+            typeof params?.notify_advisories === "boolean" ? params.notify_advisories : undefined,
+          custom_settings:
+            params?.custom_settings && typeof params.custom_settings === "object"
+              ? (params.custom_settings as Record<string, unknown>)
+              : undefined,
+        });
+        respond(true, result);
       } catch (err) {
         respond(false, { error: String(err) });
       }
@@ -843,39 +991,37 @@ function syncMcpAgent(
 
     const toolNames = tools.map((t) => "cortex_" + mcpName + "__" + t.name);
 
-    // Skip the config write when the on-disk agent already matches or is a
-    // superset of the tools being synced. This avoids triggering the
-    // config-watcher restart loop when the same MCP is discovered by both
-    // the CompositeMCPBridge (fewer tools) and the stdio MCP (full set).
+    // Check if agent already exists — skip the config write to avoid
+    // triggering the config-watcher restart loop.
+    // Do NOT set tools.allow — plugin tools are automatically available via
+    // the plugin system, and setting allow with only plugin tool names
+    // triggers stripPluginOnlyAllowlist warnings.  Worse, if a core tool
+    // name is ever added to allow it would restrict ALL core tools (read,
+    // write, edit, memory_search, etc.).
     const existing = agentList.find((a) => a.id === agentId);
     if (existing) {
-      const existingAlsoAllow = (existing.tools as Record<string, unknown> | undefined)?.alsoAllow;
-      if (Array.isArray(existingAlsoAllow)) {
-        const existingSet = new Set(existingAlsoAllow as string[]);
-        const allPresent = toolNames.every((n) => existingSet.has(n));
-        if (allPresent && existingAlsoAllow.length >= toolNames.length) {
-          logger.info(
-            "[sonance-cortex] agent sync: '" +
-              agentId +
-              "' already up to date (" +
-              toolNames.length +
-              " tools)",
-          );
-          return;
-        }
+      const toolsCfg = (existing.tools ?? {}) as Record<string, unknown>;
+      if (toolsCfg.profile === "full" && !toolsCfg.allow) {
+        logger.info(
+          "[sonance-cortex] agent sync: '" +
+            agentId +
+            "' already up to date (" +
+            toolNames.length +
+            " tools)",
+        );
+        return;
       }
       if (!existing.tools || typeof existing.tools !== "object") {
         existing.tools = {};
       }
-      const toolsCfg = existing.tools as Record<string, unknown>;
-      toolsCfg.profile = "full";
-      toolsCfg.alsoAllow = toolNames;
-      delete toolsCfg.allow;
+      const cfg = existing.tools as Record<string, unknown>;
+      cfg.profile = "full";
+      delete cfg.allow;
     } else {
       agentList.push({
         id: agentId,
         name: displayName,
-        tools: { profile: "full", alsoAllow: toolNames },
+        tools: { profile: "full" },
       });
     }
 

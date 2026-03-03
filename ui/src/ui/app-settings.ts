@@ -189,6 +189,10 @@ export function setTheme(host: SettingsHost, next: ThemeMode, context?: ThemeTra
 }
 
 export async function refreshActiveTab(host: SettingsHost) {
+  if (host.tab === "dashboard") {
+    const { loadDashboardData } = await import("./controllers/dashboard.ts");
+    await loadDashboardData(host as unknown as Parameters<typeof loadDashboardData>[0]);
+  }
   if (host.tab === "overview") {
     await loadOverview(host);
   }
@@ -243,6 +247,10 @@ export async function refreshActiveTab(host: SettingsHost) {
   }
   if (host.tab === "upstream-sync") {
     await loadUpstreamStatus(host as unknown as OpenClawApp);
+  }
+  if (host.tab === "admin") {
+    const { loadAdminData } = await import("./controllers/admin.ts");
+    await loadAdminData(host as unknown as Parameters<typeof loadAdminData>[0]);
   }
   if (host.tab === "chat") {
     await refreshChat(host as unknown as Parameters<typeof refreshChat>[0]);

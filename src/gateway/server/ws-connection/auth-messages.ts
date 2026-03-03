@@ -52,6 +52,10 @@ export function formatGatewayAuthFailureMessage(params: {
       return "unauthorized: device token mismatch (rotate/reissue device token)";
     case "sonance_sso_config_missing":
       return "unauthorized: Sonance SSO not configured (set gateway.auth.sonanceSso)";
+    case "cortex_config_missing":
+      return "unauthorized: Cortex auth not configured (set gateway.auth.cortex)";
+    case "cortex_jwt_missing":
+      return "unauthorized: Cortex auth token missing (sign in via the Control UI)";
     default:
       break;
   }
@@ -62,6 +66,9 @@ export function formatGatewayAuthFailureMessage(params: {
 
   if (authMode === "sonance-sso" && authProvided === "none") {
     return "unauthorized: Sonance SSO token missing (ensure reverse proxy forwards the token header)";
+  }
+  if (authMode === "cortex" && authProvided === "none") {
+    return "unauthorized: Cortex auth token missing (sign in via the Control UI)";
   }
   if (authMode === "token" && authProvided === "none") {
     return `unauthorized: gateway token missing (${tokenHint})`;

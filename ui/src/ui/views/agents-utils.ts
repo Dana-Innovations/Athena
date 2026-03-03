@@ -93,11 +93,16 @@ export const TOOL_SECTIONS = [
 export type PluginToolGroup = {
   mcpName: string;
   displayName: string;
-  tools: { name: string; shortName: string }[];
+  tools: { name: string; shortName: string; description?: string }[];
 };
 
 const MCP_DISPLAY_NAMES: Record<string, string> = {
+  asana: "Asana",
   github: "GitHub",
+  m365: "Microsoft 365",
+  monday: "Monday.com",
+  salesforce: "Salesforce",
+  slack: "Slack",
   supabase: "Supabase",
   vercel: "Vercel",
   bestbuy: "Best Buy",
@@ -105,6 +110,12 @@ const MCP_DISPLAY_NAMES: Record<string, string> = {
   devserver: "DevServer",
   sonance_brand: "Sonance Brand",
   bash: "Bash",
+  powerbi: "Power BI",
+  code_analysis: "Code Analysis",
+  code_review: "Code Review",
+  security_scan: "Security Scan",
+  web_quality: "Web Quality",
+  mailchimp: "Mailchimp",
 };
 
 export function extractPluginToolGroups(allowList?: string[]): PluginToolGroup[] {
@@ -517,4 +528,32 @@ export function matchesList(name: string, list?: string[]) {
 
 export function resolveToolProfile(profile: string) {
   return resolveToolProfilePolicy(profile) ?? undefined;
+}
+
+/** Derive a distinct accent color per agent based on its id. */
+const AGENT_COLORS = [
+  "#00A3E1", // Sonance Blue
+  "#8B5CF6", // Violet
+  "#06B6D4", // Cyan
+  "#10B981", // Emerald
+  "#F59E0B", // Amber
+  "#EC4899", // Pink
+  "#6366F1", // Indigo
+  "#14B8A6", // Teal
+];
+
+export function agentColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+  }
+  return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length];
+}
+
+export function agentGlow(color: string): string {
+  // Convert hex to rgba with 0.2 alpha for glow
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, 0.25)`;
 }

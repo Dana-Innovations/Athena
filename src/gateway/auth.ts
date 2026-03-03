@@ -24,7 +24,8 @@ export type ResolvedGatewayAuthMode =
   | "token"
   | "password"
   | "trusted-proxy"
-  | "sonance-sso";
+  | "sonance-sso"
+  | "cortex";
 export type ResolvedGatewayAuthModeSource =
   | "override"
   | "config"
@@ -41,6 +42,8 @@ export type ResolvedGatewayAuth = {
   trustedProxy?: GatewayTrustedProxyConfig;
   /** Sonance SSO config (required when mode is "sonance-sso"). */
   sonanceSso?: import("../config/types.gateway.js").SonanceSsoConfig;
+  /** Cortex auth config (required when mode is "cortex"). */
+  cortex?: import("../config/types.gateway.js").CortexAuthConfig;
 };
 
 export type GatewayAuthResult = {
@@ -52,7 +55,8 @@ export type GatewayAuthResult = {
     | "tailscale"
     | "device-token"
     | "trusted-proxy"
-    | "sonance-sso";
+    | "sonance-sso"
+    | "cortex";
   user?: string;
   reason?: string;
   /** Present when the request was blocked by the rate limiter. */
@@ -227,6 +231,12 @@ export function resolveGatewayAuth(params: {
     if (authOverride.trustedProxy !== undefined) {
       authConfig.trustedProxy = authOverride.trustedProxy;
     }
+    if (authOverride.sonanceSso !== undefined) {
+      authConfig.sonanceSso = authOverride.sonanceSso;
+    }
+    if (authOverride.cortex !== undefined) {
+      authConfig.cortex = authOverride.cortex;
+    }
   }
   const env = params.env ?? process.env;
   const token = authConfig.token ?? env.OPENCLAW_GATEWAY_TOKEN ?? undefined;
@@ -234,6 +244,7 @@ export function resolveGatewayAuth(params: {
   const trustedProxy = authConfig.trustedProxy;
 
   const sonanceSso = authConfig.sonanceSso;
+  const cortex = authConfig.cortex;
 
   let mode: ResolvedGatewayAuth["mode"];
   let modeSource: ResolvedGatewayAuth["modeSource"];
@@ -259,7 +270,8 @@ export function resolveGatewayAuth(params: {
     (params.tailscaleMode === "serve" &&
       mode !== "password" &&
       mode !== "trusted-proxy" &&
-      mode !== "sonance-sso");
+      mode !== "sonance-sso" &&
+      mode !== "cortex");
 
   return {
     mode,
@@ -269,6 +281,7 @@ export function resolveGatewayAuth(params: {
     allowTailscale,
     trustedProxy,
     sonanceSso,
+    cortex,
   };
 }
 
@@ -305,6 +318,18 @@ export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
     if (!auth.sonanceSso.jwtSecret && !auth.sonanceSso.jwksUri) {
       throw new Error(
         "gateway auth mode is sonance-sso, but no verification method configured (set gateway.auth.sonanceSso.jwtSecret or .jwksUri)",
+      );
+    }
+  }
+  if (auth.mode === "cortex") {
+    if (!auth.cortex) {
+      throw new Error(
+        "gateway auth mode is cortex, but no cortex config was provided (set gateway.auth.cortex)",
+      );
+    }
+    if (!auth.cortex.cortexUrl && !auth.cortex.aiIntranetUrl) {
+      throw new Error(
+        "gateway auth mode is cortex, but neither cortexUrl nor aiIntranetUrl is configured (set gateway.auth.cortex.cortexUrl or gateway.auth.cortex.aiIntranetUrl)",
       );
     }
   }
@@ -412,6 +437,86 @@ export async function authorizeGatewayConnect(params: {
       method: "sonance-sso",
       user: ssoResult.email ?? ssoResult.userId,
       sonanceUser: ssoResult,
+    };
+  }
+
+  if (auth.mode === "cortex") {
+    if (!auth.cortex) {
+      return { ok: false, reason: "cortex_config_missing" };
+    }
+    const cortexCfg = auth.cortex;
+
+    // AI Intranet central-check validation (Mode B: api_key + user_email).
+    // The UI sends the user's email as connectAuth.token after SSO redirect.
+    if (cortexCfg.aiIntranetUrl && cortexCfg.appId && cortexCfg.appApiKey) {
+      const userEmail = connectAuth?.token;
+      if (!userEmail) {
+        return { ok: false, reason: "cortex_email_missing" };
+      }
+      const baseUrl = cortexCfg.aiIntranetUrl.replace(/\/+$/, "");
+      const checkUrl = new URL(`${baseUrl}/api/auth/central-check`);
+      checkUrl.searchParams.set("application", cortexCfg.appId);
+      checkUrl.searchParams.set("api_key", cortexCfg.appApiKey);
+      checkUrl.searchParams.set("user_email", userEmail);
+      try {
+        const res = await fetch(checkUrl.toString());
+        if (!res.ok) {
+          return { ok: false, reason: `cortex_central_check_http_${res.status}` };
+        }
+        const data = (await res.json()) as {
+          access?: boolean;
+          user?: { email?: string; name?: string };
+        };
+        if (!data.access) {
+          return { ok: false, reason: "cortex_central_check_denied" };
+        }
+        return {
+          ok: true,
+          method: "cortex",
+          user: userEmail,
+          sonanceUser: {
+            userId: userEmail,
+            email: userEmail,
+            claims: { sub: userEmail, email: userEmail, auth_method: "ai_intranet" },
+          },
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          reason: `cortex_central_check_error: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+
+    // Fall back to JWT validation (original cortex auth path).
+    const jwt = connectAuth?.token;
+    if (!jwt) {
+      return { ok: false, reason: "cortex_jwt_missing" };
+    }
+    // Reuse sonance-sso JWT validation with a SonanceSsoConfig derived from cortex config.
+    const { validateSonanceSsoToken } = await import("./sonance-sso.js");
+    const ssoConfig: import("../config/types.gateway.js").SonanceSsoConfig = {
+      jwksUri:
+        cortexCfg.jwksUri ??
+        (cortexCfg.cortexUrl
+          ? `${cortexCfg.cortexUrl.replace(/\/+$/, "")}/.well-known/jwks.json`
+          : undefined),
+      jwtSecret: cortexCfg.jwtSecret,
+      issuer: cortexCfg.issuer,
+      audience: cortexCfg.audience,
+      userIdClaim: cortexCfg.userIdClaim,
+      emailClaim: cortexCfg.emailClaim,
+      roleClaim: cortexCfg.roleClaim,
+    };
+    const result = await validateSonanceSsoToken(jwt, ssoConfig);
+    if ("error" in result) {
+      return { ok: false, reason: result.error };
+    }
+    return {
+      ok: true,
+      method: "cortex",
+      user: result.email ?? result.userId,
+      sonanceUser: result,
     };
   }
 

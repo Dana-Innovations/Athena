@@ -59,6 +59,7 @@ export const SnapshotSchema = Type.Object(
         Type.Literal("password"),
         Type.Literal("trusted-proxy"),
         Type.Literal("sonance-sso"),
+        Type.Literal("cortex"),
       ]),
     ),
     updateAvailable: Type.Optional(

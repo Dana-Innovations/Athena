@@ -26,6 +26,8 @@ import {
 } from "./controllers/exec-approval.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadSessions } from "./controllers/sessions.ts";
+import { clearCortexAuth, storeCortexAuth } from "./cortex-auth.ts";
+import type { CortexAuthSession } from "./cortex-auth.ts";
 import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -65,6 +67,10 @@ type GatewayHost = {
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalError: string | null;
   updateAvailable: UpdateAvailable | null;
+  /** Gateway auth mode (e.g. "cortex"). */
+  authMode?: string;
+  /** Cortex user session (when auth mode is "cortex"). */
+  cortexUser?: CortexAuthSession | null;
 };
 
 type SessionDefaultsSnapshot = {
@@ -126,6 +132,26 @@ function applySessionDefaults(host: GatewayHost, defaults?: SessionDefaultsSnaps
   }
 }
 
+/**
+ * Fetch the user's role from Cortex (non-blocking, best-effort).
+ * Updates the cortexUser session and persists it so the admin tab
+ * becomes visible without requiring a page reload.
+ */
+async function resolveUserRole(host: GatewayHost, client: GatewayBrowserClient): Promise<void> {
+  try {
+    const result = await client.request("sonance.auth.me", {
+      email: host.cortexUser?.email,
+    });
+    console.warn("[admin] resolveUserRole result:", result);
+    if (result.role && host.cortexUser) {
+      host.cortexUser = { ...host.cortexUser, role: result.role };
+      storeCortexAuth(host.cortexUser);
+    }
+  } catch (err) {
+    console.warn("[admin] resolveUserRole failed:", err);
+  }
+}
+
 export function connectGateway(host: GatewayHost) {
   host.lastError = null;
   host.hello = null;
@@ -133,10 +159,18 @@ export function connectGateway(host: GatewayHost) {
   host.execApprovalQueue = [];
   host.execApprovalError = null;
 
+  // In cortex auth mode, use the Cortex JWT as the gateway token.
+  const authToken =
+    host.authMode === "cortex" && host.cortexUser?.jwt
+      ? host.cortexUser.jwt
+      : host.settings.token.trim()
+        ? host.settings.token
+        : undefined;
+
   const previousClient = host.client;
   const client = new GatewayBrowserClient({
     url: host.settings.gatewayUrl,
-    token: host.settings.token.trim() ? host.settings.token : undefined,
+    token: authToken,
     password: host.password.trim() ? host.password : undefined,
     clientName: "openclaw-control-ui",
     mode: "webchat",
@@ -159,6 +193,10 @@ export function connectGateway(host: GatewayHost) {
       void loadNodes(host as unknown as OpenClawApp, { quiet: true });
       void loadDevices(host as unknown as OpenClawApp, { quiet: true });
       void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
+      // Resolve admin role from Cortex for the current user (non-blocking).
+      if (host.authMode === "cortex" && host.cortexUser) {
+        void resolveUserRole(host, client);
+      }
     },
     onClose: ({ code, reason }) => {
       if (host.client !== client) {
@@ -168,6 +206,16 @@ export function connectGateway(host: GatewayHost) {
       // Code 1012 = Service Restart (expected during config saves, don't show as error)
       if (code !== 1012) {
         host.lastError = `disconnected (${code}): ${reason || "no reason"}`;
+      }
+      // If Cortex auth mode and disconnected due to auth failure, clear session
+      // so the login screen is shown.
+      if (
+        host.authMode === "cortex" &&
+        reason &&
+        (reason.includes("unauthorized") || reason.includes("JWT"))
+      ) {
+        clearCortexAuth();
+        host.cortexUser = null;
       }
     },
     onEvent: (evt) => {

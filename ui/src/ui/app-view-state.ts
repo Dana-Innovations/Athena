@@ -25,11 +25,19 @@ import type {
   ApplyResult,
   FullReviewResult,
 } from "./controllers/upstream-sync.ts";
+import type { CortexAuthSession } from "./cortex-auth.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
 import type { ThemeMode } from "./theme.ts";
+import type {
+  AdminMcpAccessEntry,
+  AdminMcpInfo,
+  AdminUsageDetail,
+  AdminUsageSummary,
+  AdminUser,
+} from "./types-admin.ts";
 import type {
   AgentsListResult,
   AgentsFilesListResult,
@@ -37,6 +45,8 @@ import type {
   ChannelsStatusSnapshot,
   ConfigSnapshot,
   ConfigUiHints,
+  CortexSkillDetailResponse,
+  CortexSkillSummary,
   CronJob,
   CronRunLogEntry,
   CronStatus,
@@ -149,6 +159,7 @@ export type AppViewState = {
   agentsError: string | null;
   agentsSelectedId: string | null;
   agentsPanel: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentsSidebarSearch: string;
   agentFilesLoading: boolean;
   agentFilesError: string | null;
   agentFilesList: AgentsFilesListResult | null;
@@ -163,6 +174,10 @@ export type AppViewState = {
   agentSkillsError: string | null;
   agentSkillsReport: SkillStatusReport | null;
   agentSkillsAgentId: string | null;
+  cortexToolGroups: import("./views/agents-utils.js").PluginToolGroup[] | null;
+  cortexToolsLoaded: boolean;
+  cortexConnections: import("./controllers/agents.js").MCPConnection[] | null;
+  cortexConnectionsLoaded: boolean;
   sessionsLoading: boolean;
   sessionsResult: SessionsListResult | null;
   sessionsError: string | null;
@@ -250,6 +265,19 @@ export type AppViewState = {
   upstreamApplyLoading: boolean;
   upstreamFullReview: FullReviewResult | null;
   upstreamFullReviewLoading: boolean;
+  adminPanel: "users" | "usage" | "mcp";
+  adminLoading: boolean;
+  adminError: string | null;
+  adminUsers: AdminUser[] | null;
+  adminUsersFilter: string;
+  adminUsageSummary: AdminUsageSummary | null;
+  adminUsageDetails: AdminUsageDetail[] | null;
+  adminMcps: AdminMcpInfo[] | null;
+  adminMcpAccess: AdminMcpAccessEntry[] | null;
+  dashboardLoading: boolean;
+  dashboardError: string | null;
+  dashboardWidgets: Record<string, import("./types-dashboard.js").DashboardWidgetData>;
+  dashboardLastRefreshAt: number | null;
   cronLoading: boolean;
   cronJobs: CronJob[];
   cronStatus: CronStatus | null;
@@ -265,6 +293,10 @@ export type AppViewState = {
   skillEdits: Record<string, string>;
   skillMessages: Record<string, SkillMessage>;
   skillsBusyKey: string | null;
+  cortexSkills: CortexSkillSummary[];
+  cortexSkillsError: string | null;
+  cortexSkillDetail: CortexSkillDetailResponse | null;
+  cortexSkillDetailName: string | null;
   debugLoading: boolean;
   debugStatus: StatusSummary | null;
   debugHealth: HealthSnapshot | null;
@@ -288,6 +320,32 @@ export type AppViewState = {
   logsMaxBytes: number;
   logsAtBottom: boolean;
   updateAvailable: import("./types.js").UpdateAvailable | null;
+  /** Gateway auth mode from bootstrap (e.g. "token", "cortex", "sonance-sso"). */
+  authMode: string;
+  /** Cortex URL for SSO login (only set when authMode is "cortex"). */
+  cortexUrl: string | null;
+  /** Supabase project URL for direct auth (only set when authMode is "cortex"). */
+  supabaseUrl: string | null;
+  /** Supabase anon key for direct auth (only set when authMode is "cortex"). */
+  supabaseAnonKey: string | null;
+  /** SSO email domain (e.g. "sonance.com"). */
+  ssoDomain: string | null;
+  /** AI Intranet URL for redirect-based SSO (e.g. "https://aiintranet.sonance.com"). */
+  aiIntranetUrl: string | null;
+  /** Application ID in the AI Intranet for central-check validation. */
+  appId: string | null;
+  /** Current Cortex user session (after successful login). */
+  cortexUser: CortexAuthSession | null;
+  /** Whether Cortex login is in progress. */
+  cortexLoginLoading: boolean;
+  /** Error from Cortex login flow. */
+  cortexLoginError: string | null;
+  /** Status message during login flow. */
+  cortexLoginStatus: string | null;
+  /** Initiate Cortex SSO login. */
+  handleCortexLogin: () => Promise<void>;
+  /** Log out of Cortex session. */
+  handleCortexLogout: () => void;
   client: GatewayBrowserClient | null;
   refreshSessionsAfterChat: Set<string>;
   connect: () => void;

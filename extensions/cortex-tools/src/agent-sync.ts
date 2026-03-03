@@ -113,26 +113,27 @@ function upsertAgent(
   agentList: Record<string, unknown>[],
   agentId: string,
   displayName: string,
-  mcpTools: CortexTool[],
+  _mcpTools: CortexTool[],
 ): void {
-  const toolNames = mcpTools.map((t) => `cortex_${t.name}`);
-
   const existing = agentList.find((a) => a.id === agentId);
   if (existing) {
-    // Always update the tool allow list so new/removed tools are reflected
+    // Ensure profile is set; do NOT set tools.allow — plugin tools are
+    // automatically available via the plugin system, and setting allow with
+    // only plugin tool names triggers stripPluginOnlyAllowlist warnings.
+    // Worse, if a core tool name is ever added to allow it would restrict
+    // ALL core tools (read, write, edit, memory_search, etc.).
     if (!existing.tools || typeof existing.tools !== "object") {
       existing.tools = {};
     }
     const toolsCfg = existing.tools as Record<string, unknown>;
     toolsCfg.profile = "full";
-    toolsCfg.allow = toolNames;
+    delete toolsCfg.allow;
   } else {
     agentList.push({
       id: agentId,
       name: displayName,
       tools: {
         profile: "full",
-        allow: toolNames,
       },
     });
   }

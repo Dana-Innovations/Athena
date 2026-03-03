@@ -81,7 +81,11 @@ export class CortexClient {
    * Tool names are in the format `{mcp_name}__{tool_name}` (e.g. `github__list_repositories`).
    * This method splits the name and calls POST /api/v1/tools/{mcp_name}/{tool_name}.
    */
-  async callTool(name: string, args: Record<string, unknown>): Promise<CortexToolCallResult> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    apiKeyOverride?: string,
+  ): Promise<CortexToolCallResult> {
     const separatorIndex = name.indexOf("__");
     if (separatorIndex === -1) {
       throw new Error(`Invalid Cortex tool name "${name}": expected format "mcpName__toolName"`);
@@ -96,7 +100,7 @@ export class CortexClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-Key": this.apiKey,
+          "X-API-Key": apiKeyOverride ?? this.apiKey,
         },
         body: JSON.stringify({ params: args }),
       },

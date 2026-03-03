@@ -1,6 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { resolveSessionAgentIds } from "../../agents/agent-scope.js";
 import { resolveBootstrapContextForRun } from "../../agents/bootstrap-files.js";
+import { fetchCortexSkillsPrompt } from "../../agents/cortex-skills.js";
 import { resolveDefaultModelForAgent } from "../../agents/model-selection.js";
 import type { EmbeddedContextFile } from "../../agents/pi-embedded-helpers.js";
 import { createOpenClawCodingTools } from "../../agents/pi-tools.js";
@@ -46,6 +47,8 @@ export async function resolveCommandsSystemPromptBundle(
     }
   })();
   const skillsPrompt = skillsSnapshot.prompt ?? "";
+  // Fetch Cortex best-practice rules (graceful: returns "" if Cortex is down)
+  const cortexSkillsPrompt = await fetchCortexSkillsPrompt();
   const sandboxRuntime = resolveSandboxRuntimeStatus({
     cfg: params.cfg,
     sessionKey: params.ctx.SessionKey ?? params.sessionKey,
@@ -122,6 +125,7 @@ export async function resolveCommandsSystemPromptBundle(
     userTimeFormat,
     contextFiles: injectedFiles,
     skillsPrompt,
+    cortexSkillsPrompt,
     heartbeatPrompt: undefined,
     ttsHint,
     runtimeInfo,

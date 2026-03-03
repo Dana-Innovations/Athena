@@ -9,6 +9,7 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import type { CortexTool, CortexToolCallResult } from "./client.js";
 import type { CortexClient } from "./client.js";
+import type { UserTokenManager } from "./user-token-manager.js";
 
 /**
  * Convert a JSON Schema object into a TypeBox schema.
@@ -96,8 +97,17 @@ function buildOptions(
  * - description: from the Cortex tool
  * - parameters: TypeBox schema converted from JSON Schema
  * - execute(): calls Cortex REST API via the client
+ *
+ * When a `tokenManager` and `sessionKey` are provided, the tool resolves a
+ * per-user API key from the Sonance SSO session before each call. This
+ * enables per-user usage tracking and multi-auth key resolution in Cortex.
  */
-export function createCortexAgentTool(tool: CortexTool, client: CortexClient) {
+export function createCortexAgentTool(
+  tool: CortexTool,
+  client: CortexClient,
+  tokenManager?: UserTokenManager,
+  sessionKey?: string,
+) {
   return {
     name: `cortex_${tool.name}`,
     label: `Cortex: ${tool.name.replace("__", " \u2192 ")}`,
@@ -112,7 +122,26 @@ export function createCortexAgentTool(tool: CortexTool, client: CortexClient) {
       details?: unknown;
     }> {
       try {
-        const result: CortexToolCallResult = await client.callTool(tool.name, params);
+        // Resolve per-user API key if SSO context is available
+        let apiKeyOverride: string | undefined;
+        if (tokenManager && sessionKey) {
+          try {
+            const { getSonanceSessionUser } =
+              await import("../../../src/gateway/sonance-context.js");
+            const user = getSonanceSessionUser(sessionKey);
+            if (user?.email) {
+              apiKeyOverride = await tokenManager.getKeyForUser(user.email);
+            }
+          } catch {
+            // Fall back to service key on any error
+          }
+        }
+
+        const result: CortexToolCallResult = await client.callTool(
+          tool.name,
+          params,
+          apiKeyOverride,
+        );
 
         if (!result.success) {
           const errorText = result.error ?? "Cortex tool execution failed";

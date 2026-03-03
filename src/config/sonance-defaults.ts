@@ -50,22 +50,52 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
   const entries = (plugins.entries ?? {}) as Record<string, unknown>;
   const cortexEntry = (entries["sonance-cortex"] ?? {}) as Record<string, unknown>;
 
-  // Gateway auth defaults: "none" for local PoC, user upgrades to "sonance-sso"
-  // when moving to a shared/centralized gateway.
+  // Gateway auth defaults: "cortex" for Cortex SSO. Override to "none" for local dev.
   const gateway = (config.gateway ?? {}) as Record<string, unknown>;
   const gatewayAuth = (gateway.auth ?? {}) as Record<string, unknown>;
-  const mergedGateway = {
+  const mergedGateway: Record<string, unknown> = {
     ...gateway,
     auth: {
       ...gatewayAuth,
-      mode: gatewayAuth.mode ?? "none",
+      mode: gatewayAuth.mode ?? "cortex",
     },
   };
+
+  // Auto-derive cortex auth config from sonance-cortex plugin when in cortex mode.
+  const cortexConfig = (cortexEntry.config ?? {}) as Record<string, unknown>;
+  const gatewayAuthCortex = (gatewayAuth.cortex ?? {}) as Record<string, unknown>;
+  if ((mergedGateway.auth as Record<string, unknown>).mode === "cortex") {
+    const cortexApiUrl =
+      (!gatewayAuthCortex.cortexUrl &&
+        ((typeof cortexConfig.apiBaseUrl === "string" && cortexConfig.apiBaseUrl.trim()) ||
+          process.env.SONANCE_CORTEX_API_URL?.trim())) ||
+      "";
+    const aiIntranetUrl =
+      (!gatewayAuthCortex.aiIntranetUrl && process.env.AI_INTRANET_URL?.trim()) || "";
+    const appId = (!gatewayAuthCortex.appId && process.env.AI_INTRANET_APP_ID?.trim()) || "";
+    const appApiKey =
+      (!gatewayAuthCortex.appApiKey && process.env.AI_INTRANET_APP_API_KEY?.trim()) || "";
+    const supabaseUrl =
+      (!gatewayAuthCortex.supabaseUrl && process.env.CORTEX_SUPABASE_URL?.trim()) || "";
+    const supabaseAnonKey =
+      (!gatewayAuthCortex.supabaseAnonKey && process.env.CORTEX_SUPABASE_ANON_KEY?.trim()) || "";
+
+    if (cortexApiUrl || aiIntranetUrl || appId || appApiKey || supabaseUrl) {
+      (mergedGateway.auth as Record<string, unknown>).cortex = {
+        ...gatewayAuthCortex,
+        ...(cortexApiUrl ? { cortexUrl: cortexApiUrl } : {}),
+        ...(aiIntranetUrl ? { aiIntranetUrl } : {}),
+        ...(appId ? { appId } : {}),
+        ...(appApiKey ? { appApiKey } : {}),
+        ...(supabaseUrl ? { supabaseUrl } : {}),
+        ...(supabaseAnonKey ? { supabaseAnonKey } : {}),
+      };
+    }
+  }
 
   // Apollo proxy mode: when the Cortex plugin has apolloBaseUrl configured,
   // point the Anthropic provider at Apollo so all AI requests go through
   // Cortex (rate limiting, billing, usage tracking).
-  const cortexConfig = (cortexEntry.config ?? {}) as Record<string, unknown>;
   const apolloBaseUrl =
     (typeof cortexConfig.apolloBaseUrl === "string" && cortexConfig.apolloBaseUrl.trim()) ||
     process.env.SONANCE_APOLLO_BASE_URL?.trim() ||
