@@ -255,11 +255,19 @@ export class CortexClient {
    * The Cortex server is responsible for routing to the appropriate MCP,
    * agent, or monitor and applying ABAC authorization.
    */
-  async executeTool(req: CortexToolExecutionRequest): Promise<CortexToolExecutionResult> {
+  async executeTool(
+    req: CortexToolExecutionRequest,
+    opts?: { userId?: string },
+  ): Promise<CortexToolExecutionResult> {
+    const headers: Record<string, string> = {};
+    if (opts?.userId) {
+      headers["X-Cortex-User-Id"] = opts.userId;
+    }
     return this.request<CortexToolExecutionResult>("/api/v1/tools/execute", {
       method: "POST",
       body: req,
       timeoutMs: EXECUTE_TIMEOUT_MS,
+      headers,
     });
   }
 

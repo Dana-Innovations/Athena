@@ -78,6 +78,11 @@ export class StdioMcpClient {
       throw new Error("Failed to open stdio pipes to MCP server");
     }
 
+    // Pipe MCP subprocess stderr to parent stderr for visibility in container logs
+    this.proc.stderr?.on("data", (chunk: Buffer) => {
+      process.stderr.write(`[mcp:${this.config.command}] ${chunk}`);
+    });
+
     const rl = createInterface({ input: this.proc.stdout });
     rl.on("line", (line) => {
       const trimmed = line.trim();

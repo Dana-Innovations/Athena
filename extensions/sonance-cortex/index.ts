@@ -12,6 +12,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { pluginUserStore } from "../../src/plugins/user-context.js";
 import { installApolloFetchCompat } from "./src/apollo-compat.js";
 import { AuditSink } from "./src/audit-sink.js";
 import { parseCortexConfig, type McpServerEntry } from "./src/config.js";
@@ -213,11 +214,15 @@ const cortexPlugin = {
                 ),
               ),
               async execute(toolCallId, params) {
-                const result = await client.executeTool({
-                  toolName: tool.name,
-                  toolCallId,
-                  parameters: params as Record<string, unknown>,
-                });
+                const userCtx = pluginUserStore.getStore();
+                const result = await client.executeTool(
+                  {
+                    toolName: tool.name,
+                    toolCallId,
+                    parameters: params as Record<string, unknown>,
+                  },
+                  { userId: userCtx?.senderId },
+                );
                 if (!result.ok) {
                   throw new Error(result.error ?? `Cortex tool "${tool.name}" execution failed`);
                 }
@@ -568,9 +573,15 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
   };
 
   const rpc = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+    const reqHeaders: Record<string, string> = { ...headers };
+    const userCtx = pluginUserStore.getStore();
+    if (userCtx?.senderId) {
+      reqHeaders["X-Cortex-User-Id"] = userCtx.senderId;
+      api.logger.info?.(`[user-ctx] cortex rpc(${method}) delegating to user ${userCtx.senderId}`);
+    }
     const res = await fetch(bridgeUrl, {
       method: "POST",
-      headers,
+      headers: reqHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
     });
     if (!res.ok) {
@@ -587,60 +598,117 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
     return body.result;
   };
 
+  // Helper: register bridge tools from a tool list (used by both cache and live paths)
+  type BridgeTool = { name: string; description?: string; inputSchema?: Record<string, unknown> };
+  const registerBridgeTools = (tools: BridgeTool[]) => {
+    for (const tool of tools) {
+      const schema = tool.inputSchema
+        ? jsonSchemaToTypeBox(tool.inputSchema as Parameters<typeof jsonSchemaToTypeBox>[0])
+        : Type.Object({});
+
+      const prefixedName = "cortex_" + tool.name;
+      api.registerTool({
+        name: prefixedName,
+        label: prefixedName,
+        description: `[cortex-mcp] ${tool.description ?? tool.name}`,
+        parameters: schema,
+        async execute(_toolCallId, params) {
+          const callResult = await rpc("tools/call", {
+            name: tool.name,
+            arguments: params as Record<string, unknown>,
+          });
+          const content = (callResult as { content?: Array<{ type: string; text?: string }> })
+            ?.content;
+          const text = content
+            ?.filter((c) => c.type === "text")
+            .map((c) => c.text ?? "")
+            .join("\n");
+          return wrapTextResult(text || JSON.stringify(callResult ?? {}));
+        },
+      });
+      api.logger.info(`[sonance-cortex] registered bridge tool: ${prefixedName}`);
+    }
+  };
+
+  const syncBridgeAgents = (tools: BridgeTool[]) => {
+    const mcpGroups = new Map<string, BridgeTool[]>();
+    for (const tool of tools) {
+      const sep = tool.name.indexOf("__");
+      if (sep === -1) continue;
+      const mcpName = tool.name.slice(0, sep);
+      const shortName = tool.name.slice(sep + 2);
+      let list = mcpGroups.get(mcpName);
+      if (!list) {
+        list = [];
+        mcpGroups.set(mcpName, list);
+      }
+      list.push({ ...tool, name: shortName });
+    }
+    for (const [mcpName, mcpTools] of mcpGroups) {
+      syncMcpAgent(api.logger, mcpName, mcpTools);
+    }
+  };
+
+  // ── Synchronous cache: load tools from disk so they're available before
+  //    the async bridge discovery completes. This prevents the race condition
+  //    where the tool policy evaluates cortex_* before tools are registered.
+  let loadedFromCache = false;
+  try {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const os = require("node:os") as typeof import("node:os");
+    const path = require("node:path") as typeof import("node:path");
+    const stateDir =
+      process.env.ATHENA_STATE_DIR?.trim() ||
+      process.env.OPENCLAW_STATE_DIR?.trim() ||
+      path.join(os.homedir(), ".openclaw");
+    const cacheFile = path.join(stateDir, "cache", "cortex-bridge-tools.json");
+    const raw = fs.readFileSync(cacheFile, "utf-8");
+    const cached = JSON.parse(raw) as BridgeTool[];
+    if (Array.isArray(cached) && cached.length > 0) {
+      registerBridgeTools(cached);
+      api.logger.info(`[sonance-cortex] loaded ${cached.length} tool(s) from bridge cache (sync)`);
+      syncBridgeAgents(cached);
+      loadedFromCache = true;
+    }
+  } catch {
+    // No cache yet — first run or cache cleared; tools will load async.
+  }
+
+  // ── Async discovery: fetch live tool list from Cortex and refresh the cache.
   rpc("tools/list")
     .then((result) => {
-      const tools = ((result as { tools?: unknown[] })?.tools ?? []) as Array<{
-        name: string;
-        description?: string;
-        inputSchema?: Record<string, unknown>;
-      }>;
+      const tools = ((result as { tools?: unknown[] })?.tools ?? []) as BridgeTool[];
 
-      for (const tool of tools) {
-        const schema = tool.inputSchema
-          ? jsonSchemaToTypeBox(tool.inputSchema as Parameters<typeof jsonSchemaToTypeBox>[0])
-          : Type.Object({});
-
-        const prefixedName = "cortex_" + tool.name;
-        api.registerTool({
-          name: prefixedName,
-          label: prefixedName,
-          description: `[cortex-mcp] ${tool.description ?? tool.name}`,
-          parameters: schema,
-          async execute(_toolCallId, params) {
-            const callResult = await rpc("tools/call", {
-              name: tool.name,
-              arguments: params as Record<string, unknown>,
-            });
-            const content = (callResult as { content?: Array<{ type: string; text?: string }> })
-              ?.content;
-            const text = content
-              ?.filter((c) => c.type === "text")
-              .map((c) => c.text ?? "")
-              .join("\n");
-            return wrapTextResult(text || JSON.stringify(callResult ?? {}));
-          },
-        });
-        api.logger.info(`[sonance-cortex] registered bridge tool: ${prefixedName}`);
+      // Write cache for next synchronous load
+      try {
+        const fs = require("node:fs") as typeof import("node:fs");
+        const os = require("node:os") as typeof import("node:os");
+        const path = require("node:path") as typeof import("node:path");
+        const stateDir =
+          process.env.ATHENA_STATE_DIR?.trim() ||
+          process.env.OPENCLAW_STATE_DIR?.trim() ||
+          path.join(os.homedir(), ".openclaw");
+        const cacheDir = path.join(stateDir, "cache");
+        fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(cacheDir, "cortex-bridge-tools.json"),
+          JSON.stringify(tools),
+          "utf-8",
+        );
+      } catch (cacheErr) {
+        api.logger.warn(`[sonance-cortex] failed to write bridge tool cache: ${String(cacheErr)}`);
       }
+
+      if (loadedFromCache) {
+        api.logger.info(
+          `[sonance-cortex] async refresh: ${tools.length} tool(s) from CompositeMCPBridge (already loaded from cache)`,
+        );
+        return;
+      }
+
+      registerBridgeTools(tools);
       api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from CompositeMCPBridge`);
-
-      // Sync agents for each MCP namespace discovered via the bridge
-      const mcpGroups = new Map<string, typeof tools>();
-      for (const tool of tools) {
-        const sep = tool.name.indexOf("__");
-        if (sep === -1) continue;
-        const mcpName = tool.name.slice(0, sep);
-        const shortName = tool.name.slice(sep + 2);
-        let list = mcpGroups.get(mcpName);
-        if (!list) {
-          list = [];
-          mcpGroups.set(mcpName, list);
-        }
-        list.push({ ...tool, name: shortName });
-      }
-      for (const [mcpName, mcpTools] of mcpGroups) {
-        syncMcpAgent(api.logger, mcpName, mcpTools);
-      }
+      syncBridgeAgents(tools);
     })
     .catch((err) => {
       api.logger.warn(`[sonance-cortex] CompositeMCPBridge discovery failed: ${String(err)}`);
@@ -682,9 +750,14 @@ function bridgeHttpMcp(api: OpenClawPluginApi, mcp: McpServerEntry): void {
     })
     .then((tools) => {
       registerMcpTools(api, mcp.name, tools, async (toolName, params) => {
+        const callHeaders: Record<string, string> = { ...mcpHeaders };
+        const userCtx = pluginUserStore.getStore();
+        if (userCtx?.senderId) {
+          callHeaders["X-Cortex-User-Id"] = userCtx.senderId;
+        }
         const callRes = await fetch(baseUrl + "/tools/call", {
           method: "POST",
-          headers: mcpHeaders,
+          headers: callHeaders,
           body: JSON.stringify({
             jsonrpc: "2.0",
             id: Date.now(),
@@ -776,11 +849,11 @@ function syncMcpAgent(
     // the CompositeMCPBridge (fewer tools) and the stdio MCP (full set).
     const existing = agentList.find((a) => a.id === agentId);
     if (existing) {
-      const existingAllow = (existing.tools as Record<string, unknown> | undefined)?.allow;
-      if (Array.isArray(existingAllow)) {
-        const existingSet = new Set(existingAllow as string[]);
+      const existingAlsoAllow = (existing.tools as Record<string, unknown> | undefined)?.alsoAllow;
+      if (Array.isArray(existingAlsoAllow)) {
+        const existingSet = new Set(existingAlsoAllow as string[]);
         const allPresent = toolNames.every((n) => existingSet.has(n));
-        if (allPresent && existingAllow.length >= toolNames.length) {
+        if (allPresent && existingAlsoAllow.length >= toolNames.length) {
           logger.info(
             "[sonance-cortex] agent sync: '" +
               agentId +
@@ -796,12 +869,13 @@ function syncMcpAgent(
       }
       const toolsCfg = existing.tools as Record<string, unknown>;
       toolsCfg.profile = "full";
-      toolsCfg.allow = toolNames;
+      toolsCfg.alsoAllow = toolNames;
+      delete toolsCfg.allow;
     } else {
       agentList.push({
         id: agentId,
         name: displayName,
-        tools: { profile: "full", allow: toolNames },
+        tools: { profile: "full", alsoAllow: toolNames },
       });
     }
 
@@ -1429,7 +1503,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
         const resolved = resolveModel(
           "anthropic",
-          "claude-sonnet-4-20250514",
+          "claude-sonnet-4-5-20250929",
           undefined,
           api.config,
         );
@@ -1503,6 +1577,475 @@ Respond with ONLY valid JSON (no markdown fences):
           recommendedOrder: safeCommits.map((c) => c.hash),
         };
       }
+
+      respond(true, aiResult);
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  // Helper: heuristic classification when AI batch fails
+  function heuristicClassify(
+    c: { hash: string; message: string; files: string[]; touchesAthena: boolean },
+    sonanceFiles: string[],
+  ) {
+    const overlapping = c.files.filter((f) => sonanceFiles.includes(f));
+    const isSecurity = /security|auth|cve|vuln/i.test(c.message);
+    const isFix = /fix|bug|patch/i.test(c.message);
+    const isTestOnly = c.files.every((f) => f.includes(".test.") || f.startsWith("test/"));
+    const isDocsOnly = c.files.every((f) => f.startsWith("docs/"));
+    if (overlapping.length > 0) {
+      return {
+        hash: c.hash,
+        message: c.message,
+        classification: "risky" as const,
+        importance: isSecurity ? "critical" : "high",
+        type: isSecurity ? "security" : "maintenance",
+        plainSummary: c.message,
+        reason: `Touches ${overlapping.length} Athena file(s)`,
+        conflictFiles: overlapping,
+      };
+    }
+    if (isTestOnly || isDocsOnly) {
+      return {
+        hash: c.hash,
+        message: c.message,
+        classification: "irrelevant" as const,
+        importance: "low",
+        type: isTestOnly ? "maintenance" : "docs",
+        plainSummary: c.message,
+        reason: isTestOnly ? "Test-only change" : "Docs-only change",
+        conflictFiles: [],
+      };
+    }
+    return {
+      hash: c.hash,
+      message: c.message,
+      classification: "relevant" as const,
+      importance: isSecurity ? "critical" : isFix ? "medium" : "medium",
+      type: isSecurity ? "security" : isFix ? "bugfix" : "maintenance",
+      plainSummary: c.message,
+      reason: "Automated classification (AI unavailable for this batch)",
+      conflictFiles: [],
+    };
+  }
+
+  // -- Upstream Full AI Review (all commits, Athena-aware) ------------------
+  api.registerGatewayMethod("sonance.upstream.reviewAll", async ({ respond }) => {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const execFileAsync = promisify(execFile);
+      const cwd = process.cwd();
+
+      const hasUpstream = await execFileAsync("git", ["remote", "get-url", "upstream"], {
+        cwd,
+        timeout: 5_000,
+      })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!hasUpstream) {
+        respond(false, {
+          error:
+            "Upstream remote not configured. Run: git remote add upstream https://github.com/openclaw/openclaw.git",
+        });
+        return;
+      }
+
+      // Fetch latest
+      await execFileAsync("git", ["fetch", "upstream", "main", "--quiet"], {
+        cwd,
+        timeout: 30_000,
+      }).catch(() => {});
+
+      const baseRes = await execFileAsync("git", ["merge-base", "HEAD", "upstream/main"], {
+        cwd,
+        timeout: 5_000,
+      }).catch(() => ({ stdout: "" }));
+      const mergeBase = baseRes.stdout.trim();
+      if (!mergeBase) {
+        respond(true, {
+          summary:
+            "Could not find a common ancestor between your branch and upstream. This usually means the upstream remote needs to be configured correctly.",
+          relevantUpdates: [],
+          irrelevantUpdates: [],
+          riskyUpdates: [],
+          updateInstructions: [],
+          totalReviewed: 0,
+        });
+        return;
+      }
+
+      // Get all commits
+      const logRes = await execFileAsync(
+        "git",
+        ["log", "--oneline", "--no-merges", "HEAD..upstream/main"],
+        { cwd, timeout: 10_000 },
+      ).catch(() => ({ stdout: "" }));
+
+      const allCommits = logRes.stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const sep = line.indexOf(" ");
+          return { hash: line.slice(0, sep), message: line.slice(sep + 1) };
+        });
+
+      if (allCommits.length === 0) {
+        respond(true, {
+          summary: "Athena is fully up to date with OpenClaw. No new updates to review.",
+          relevantUpdates: [],
+          irrelevantUpdates: [],
+          riskyUpdates: [],
+          updateInstructions: [],
+          totalReviewed: 0,
+        });
+        return;
+      }
+
+      // Read fork manifest
+      let forkManifest = "";
+      try {
+        forkManifest = readFileSync(join(cwd, "SONANCE_FORK.md"), "utf-8");
+      } catch {}
+
+      let sonanceFiles: string[] = [];
+      const fileMatches = forkManifest.match(/\| `([^`]+)`/g);
+      if (fileMatches) {
+        sonanceFiles = fileMatches.map((m) => m.replace(/\| `|`/g, "").trim());
+      }
+
+      const reviewBatch = allCommits.slice(0, 50);
+      const commitDetails: Array<{
+        hash: string;
+        message: string;
+        files: string[];
+        touchesAthena: boolean;
+      }> = [];
+
+      for (const c of reviewBatch) {
+        const filesRes = await execFileAsync(
+          "git",
+          ["diff-tree", "--no-commit-id", "-r", "--name-only", c.hash],
+          { cwd, timeout: 5_000 },
+        ).catch(() => ({ stdout: "" }));
+        const files = filesRes.stdout.trim().split("\n").filter(Boolean);
+        const touchesAthena = files.some((f) => sonanceFiles.includes(f));
+        commitDetails.push({ hash: c.hash, message: c.message, files, touchesAthena });
+      }
+
+      const athenaFilesSummary = sonanceFiles.length > 0 ? sonanceFiles.join(", ") : "(none found)";
+
+      // ── Batched AI review ───────────────────────────────────────────
+      // Apollo proxy silently rejects large requests, so we split the
+      // work into small batches of ≤8 commits each (matching the proven
+      // request size of the single-commit `analyze` method).
+      const BATCH_SIZE = 8;
+      const batches: (typeof commitDetails)[] = [];
+      for (let i = 0; i < commitDetails.length; i += BATCH_SIZE) {
+        batches.push(commitDetails.slice(i, i + BATCH_SIZE));
+      }
+
+      type ClassifiedCommit = {
+        hash: string;
+        message: string;
+        classification: "relevant" | "risky" | "irrelevant";
+        importance: string;
+        type: string;
+        plainSummary: string;
+        reason: string;
+        conflictFiles: string[];
+      };
+
+      const allClassified: ClassifiedCommit[] = [];
+      let aiBatchesSucceeded = 0;
+      let aiBatchesFailed = 0;
+
+      // Resolve API endpoint and key.
+      // Priority: direct Anthropic key (env) > Apollo proxy > resolver fallback.
+      let apiUrl = "";
+      let apiKey = "";
+      let modelId = "claude-sonnet-4-5-20250929";
+      let aiSource = "none";
+
+      const pluginCfg = parseCortexConfig(api.pluginConfig);
+
+      const directKey =
+        process.env.SONANCE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "";
+      if (directKey) {
+        apiKey = directKey;
+        apiUrl = "https://api.anthropic.com/v1/messages";
+        aiSource = "direct-anthropic";
+      } else {
+        // Check Apollo proxy
+        const apolloUrl = pluginCfg.apolloBaseUrl || process.env.SONANCE_APOLLO_BASE_URL || "";
+        if (apolloUrl && pluginCfg.apiKey) {
+          // Verify Apollo is reachable before committing to it
+          // Apollo is configured — trust the config and use it.
+          // If Apollo is down, individual batch calls will fail and fall back to heuristic.
+          apiKey = pluginCfg.apiKey;
+          apiUrl = apolloUrl.replace(/\/+$/, "") + "/v1/messages";
+          aiSource = "apollo-proxy";
+        }
+      }
+
+      // Last resort: try the model-auth resolver (might find keys from other sources)
+      if (!apiKey) {
+        try {
+          const { resolveApiKeyForProvider, requireApiKey: requireKey } =
+            await import("../../src/agents/model-auth.js");
+          const auth = await resolveApiKeyForProvider({ provider: "anthropic", cfg: api.config });
+          const resolved = requireKey(auth, "anthropic");
+          if (resolved) {
+            // Check if this is just the Apollo key (which won't work if Apollo is down)
+            if (resolved.startsWith("ctx_")) {
+              api.logger.warn(
+                "[sonance-cortex] reviewAll: only Cortex key available but Apollo is down",
+              );
+            } else {
+              apiKey = resolved;
+              apiUrl = "https://api.anthropic.com/v1/messages";
+              aiSource = "resolver:" + auth.source;
+            }
+          }
+        } catch {
+          // Key resolution failed entirely
+        }
+      }
+
+      api.logger.info(
+        "[sonance-cortex] reviewAll: source=" + aiSource + ", url=" + (apiUrl || "(none)"),
+      );
+
+      if (!apiKey) {
+        api.logger.warn(
+          "[sonance-cortex] reviewAll: No AI available. Apollo is not running and no ANTHROPIC_API_KEY env var set. Using heuristic.",
+        );
+        for (const c of commitDetails) {
+          allClassified.push(heuristicClassify(c, sonanceFiles));
+        }
+      } else {
+        api.logger.info(
+          "[sonance-cortex] reviewAll: " +
+            commitDetails.length +
+            " commits in " +
+            batches.length +
+            " batches via " +
+            aiSource,
+        );
+
+        for (let bi = 0; bi < batches.length; bi++) {
+          const batch = batches[bi];
+          const batchTable = batch
+            .map(
+              (c) =>
+                `${c.hash} | ${c.message}${c.touchesAthena ? " [ATHENA]" : ""} | ${c.files.slice(0, 6).join(", ")}`,
+            )
+            .join("\n");
+
+          const batchPrompt = `Classify these OpenClaw updates for "Athena" (enterprise fork with security lockdown, Cortex, Apollo proxy, SSO, M365 MCP).
+Protected files: ${athenaFilesSummary}
+Rules: "relevant"=useful, "risky"=useful but touches protected files, "irrelevant"=mobile/cosmetic/niche.
+
+${batchTable}
+
+Respond ONLY valid JSON array, no markdown:
+[{"hash":"...","classification":"relevant|risky|irrelevant","importance":"critical|high|medium|low","type":"security|bugfix|feature|performance|maintenance|docs","plainSummary":"one sentence","reason":"one sentence"}]`;
+
+          try {
+            const httpRes = await fetch(apiUrl, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-api-key": apiKey,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: modelId,
+                max_tokens: 4096,
+                temperature: 0.2,
+                messages: [{ role: "user", content: batchPrompt }],
+              }),
+              signal: AbortSignal.timeout(60_000),
+            });
+
+            const responseText = await httpRes.text();
+
+            if (!httpRes.ok) {
+              api.logger.warn(
+                "[sonance-cortex] reviewAll batch " +
+                  (bi + 1) +
+                  " HTTP " +
+                  httpRes.status +
+                  ": " +
+                  responseText.slice(0, 300),
+              );
+              throw new Error("HTTP " + httpRes.status);
+            }
+
+            const res = JSON.parse(responseText) as {
+              content?: Array<{ type: string; text?: string }>;
+              stop_reason?: string;
+            };
+
+            const text = (res.content ?? [])
+              .filter((b) => b.type === "text" && b.text)
+              .map((b) => b.text!.trim())
+              .join(" ");
+
+            api.logger.info(
+              "[sonance-cortex] reviewAll batch " +
+                (bi + 1) +
+                "/" +
+                batches.length +
+                " ok: " +
+                text.length +
+                " chars, stop: " +
+                (res.stop_reason ?? "n/a"),
+            );
+
+            if (text.length < 5) throw new Error("Empty response");
+
+            const cleaned = text
+              .replace(/^```json?\s*\n?/i, "")
+              .replace(/\n?```\s*$/i, "")
+              .trim();
+
+            const parsed = JSON.parse(cleaned) as Array<{
+              hash: string;
+              classification?: string;
+              importance?: string;
+              type?: string;
+              plainSummary?: string;
+              reason?: string;
+            }>;
+
+            for (const item of parsed) {
+              const commit = batch.find((c) => c.hash.startsWith(item.hash));
+              if (!commit) continue;
+              allClassified.push({
+                hash: commit.hash,
+                message: commit.message,
+                classification:
+                  item.classification === "risky" || item.classification === "irrelevant"
+                    ? item.classification
+                    : "relevant",
+                importance: item.importance ?? "medium",
+                type: item.type ?? "maintenance",
+                plainSummary: item.plainSummary ?? commit.message,
+                reason: item.reason ?? "",
+                conflictFiles: commit.touchesAthena
+                  ? commit.files.filter((f) => sonanceFiles.includes(f))
+                  : [],
+              });
+            }
+            aiBatchesSucceeded++;
+          } catch (batchErr) {
+            api.logger.warn(
+              "[sonance-cortex] reviewAll batch " + (bi + 1) + " failed: " + String(batchErr),
+            );
+            aiBatchesFailed++;
+            for (const c of batch) {
+              allClassified.push(heuristicClassify(c, sonanceFiles));
+            }
+          }
+        }
+      }
+
+      // ── Assemble final result from classified commits ───────────────
+      const relevant: Array<Record<string, unknown>> = [];
+      const irrelevant: Array<Record<string, unknown>> = [];
+      const risky: Array<Record<string, unknown>> = [];
+
+      for (const c of allClassified) {
+        if (c.classification === "risky") {
+          risky.push({
+            hash: c.hash,
+            message: c.message,
+            importance: c.importance,
+            type: c.type,
+            plainSummary: c.plainSummary,
+            whyItMatters: c.reason,
+            conflictFiles: c.conflictFiles,
+            riskExplanation:
+              c.conflictFiles.length > 0
+                ? `Touches Athena files: ${c.conflictFiles.join(", ")}. Review the diff to ensure Athena's customizations are preserved.`
+                : c.reason,
+          });
+        } else if (c.classification === "irrelevant") {
+          irrelevant.push({
+            hash: c.hash,
+            message: c.message,
+            importance: c.importance,
+            type: c.type,
+            plainSummary: c.plainSummary,
+            skipReason: c.reason,
+          });
+        } else {
+          relevant.push({
+            hash: c.hash,
+            message: c.message,
+            importance: c.importance,
+            type: c.type,
+            plainSummary: c.plainSummary,
+            whyItMatters: c.reason,
+            safe: true,
+            conflictFiles: [],
+          });
+        }
+      }
+
+      const aiQuality =
+        aiBatchesSucceeded > 0
+          ? aiBatchesFailed === 0
+            ? "Full AI analysis completed"
+            : `AI analyzed ${aiBatchesSucceeded}/${batches.length} batches (${aiBatchesFailed} fell back to heuristic)`
+          : aiSource === "none"
+            ? "AI review requires either Apollo running locally (port 8000) or an ANTHROPIC_API_KEY environment variable. Using automated heuristic instead"
+            : "AI was unavailable — using automated heuristic review";
+
+      const safeHashes = relevant.map((r) => r.hash as string);
+      const aiResult: Record<string, unknown> = {
+        summary: `${aiQuality}. ${relevant.length} updates are recommended, ${risky.length} need careful review (touch Athena files), and ${irrelevant.length} can be skipped.`,
+        relevantUpdates: relevant,
+        irrelevantUpdates: irrelevant,
+        riskyUpdates: risky,
+        updateInstructions: [
+          {
+            phase: 1,
+            title: "Phase 1: Safe Updates",
+            description:
+              "These updates don't touch Athena-customized files and are safe to install.",
+            hashes: safeHashes,
+            steps: [
+              "Select these updates in the Update Manager",
+              "Click 'Preview Install' to verify",
+              "Click 'Install Updates' to apply on a separate branch",
+              "Test the gateway, then merge when satisfied",
+            ],
+          },
+          ...(risky.length > 0
+            ? [
+                {
+                  phase: 2,
+                  title: "Phase 2: Manual Review Required",
+                  description: "These touch Athena-customized files and need careful merging.",
+                  hashes: risky.map((r) => r.hash),
+                  steps: [
+                    "Review each update's diff carefully",
+                    "Compare with Athena's version of the conflicting files",
+                    "Manually merge changes or skip if the Athena version is preferred",
+                  ],
+                },
+              ]
+            : []),
+        ],
+        totalReviewed: commitDetails.length,
+      };
 
       respond(true, aiResult);
     } catch (err) {
