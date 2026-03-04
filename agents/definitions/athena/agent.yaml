@@ -1,0 +1,66 @@
+apiVersion: athena/v1
+kind: Agent
+metadata:
+  name: athena
+  displayName: "Athena"
+  description: "Personal AI assistant for Sonance employees"
+  avatar: "athena.png"
+  aliases: ["@athena"]
+  team: company-wide
+  owner: josh@sonance.com
+
+spec:
+  runtime:
+    framework: openclaw
+    model:
+      primary: anthropic/claude-sonnet-4-5-20250929
+      fallback: anthropic/claude-haiku-4-5-20251001
+    compaction:
+      mode: safeguard
+
+  identity:
+    soulPath: ./SOUL.md
+    onboarding: true
+
+  persistence:
+    provider: azure-blob
+    quota: 1GB
+    layout:
+      workspace: /workspace
+      memory: /memory
+      cache: /cache
+
+  skills:
+    cortex:
+      mcps: ["m365"]
+      tools:
+        allow: ["cortex_m365__*"]
+        deny: ["cortex_m365__delete_*"]
+
+  gateways:
+    teams:
+      enabled: true
+      appId: "78bdfd6c-d857-4c2b-b9ea-7ce57befe693"
+      dmPolicy: allowlist
+      groupPolicy: mention
+    web:
+      enabled: true
+    api:
+      enabled: true
+      rateLimit: "100/min"
+
+  cron:
+    - name: daily-briefing
+      schedule: "0 8 * * 1-5"
+      action: send-daily-briefing
+      targets: subscribed-users
+
+  collaboration:
+    canContact: ["scheduler"]
+    acceptFrom: ["*"]
+    maxDelegationDepth: 2
+
+  access:
+    owners: ["josh@sonance.com"]
+    admins: ["elliott@sonance.com"]
+    users: ["*@sonance.com"]
