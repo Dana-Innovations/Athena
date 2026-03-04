@@ -281,9 +281,11 @@ pkill -9 -f "openclaw gateway" 2>/dev/null || true
 sleep 1
 
 export OPENCLAW_STATE_DIR="$CONFIG_DIR"
+export OPENCLAW_CONFIG_PATH="$CONFIG_DIR/openclaw.json"
 export ATHENA_PROFILE_DIR="$PROFILE_DIR"
 export OPENCLAW_GATEWAY_TOKEN="local-dev-$(date +%s)"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+export SONANCE_CORTEX_API_KEY="${CORTEX_API_KEY:-}"
 
 cd "$ROOT_DIR"
 exec pnpm openclaw gateway run --allow-unconfigured --bind loopback --port "$PORT"
