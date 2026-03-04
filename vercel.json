@@ -1,0 +1,6 @@
+{
+  "installCommand": "corepack enable && pnpm install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "cd ui && npx vite build --outDir dist",
+  "outputDirectory": "ui/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

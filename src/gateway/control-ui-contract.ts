@@ -19,4 +19,6 @@ export type ControlUiBootstrapConfig = {
   aiIntranetUrl?: string;
   /** Application ID in the AI Intranet for central-check validation. */
   appId?: string;
+  /** WebSocket URL for the gateway when UI is hosted separately (e.g. "wss://elmo-cortex.fly.dev"). */
+  gatewayUrl?: string;
 };
