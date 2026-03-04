@@ -24,6 +24,8 @@ export type ControlUiBootstrapState = {
   aiIntranetUrl?: string;
   /** Application ID in the AI Intranet. */
   appId?: string;
+  /** Gateway WebSocket URL override from bootstrap config. */
+  gatewayUrl?: string;
 };
 
 export async function loadControlUiBootstrapConfig(state: ControlUiBootstrapState) {
@@ -64,6 +66,7 @@ export async function loadControlUiBootstrapConfig(state: ControlUiBootstrapStat
     state.ssoDomain = parsed.ssoDomain;
     state.aiIntranetUrl = parsed.aiIntranetUrl;
     state.appId = parsed.appId;
+    state.gatewayUrl = parsed.gatewayUrl;
   } catch {
     // Ignore bootstrap failures; UI will update identity after connecting.
   }

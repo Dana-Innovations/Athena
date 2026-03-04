@@ -62,6 +62,31 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
     },
   };
 
+  // Allow external UI origins via env var (comma-separated).
+  const controlUi = (mergedGateway.controlUi ?? {}) as Record<string, unknown>;
+  const existingAllowedOrigins = Array.isArray(controlUi.allowedOrigins)
+    ? (controlUi.allowedOrigins as string[])
+    : [];
+  const envOrigins = (process.env.OPENCLAW_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (envOrigins.length > 0) {
+    mergedGateway.controlUi = {
+      ...controlUi,
+      allowedOrigins: [...new Set([...existingAllowedOrigins, ...envOrigins])],
+    };
+  }
+
+  // In cortex mode, disable device pairing (SSO already authenticates users).
+  if ((mergedGateway.auth as Record<string, unknown>).mode === "cortex") {
+    const currentControlUi = (mergedGateway.controlUi ?? {}) as Record<string, unknown>;
+    mergedGateway.controlUi = {
+      ...currentControlUi,
+      dangerouslyDisableDeviceAuth: currentControlUi.dangerouslyDisableDeviceAuth ?? true,
+    };
+  }
+
   // Auto-derive cortex auth config from sonance-cortex plugin when in cortex mode.
   const cortexConfig = (cortexEntry.config ?? {}) as Record<string, unknown>;
   const gatewayAuthCortex = (gatewayAuth.cortex ?? {}) as Record<string, unknown>;
@@ -138,6 +163,28 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
           ...cortexEntry,
           enabled: cortexEntry.enabled ?? true,
         },
+        "cortex-tools": (() => {
+          const ctEntry = (entries["cortex-tools"] ?? {}) as Record<string, unknown>;
+          const ctConfig = (ctEntry.config ?? {}) as Record<string, unknown>;
+          // Auto-derive url/apiKey from sonance-cortex config or env vars (same Cortex backend)
+          const url =
+            (typeof ctConfig.url === "string" && ctConfig.url.trim()) ||
+            (typeof cortexConfig.apiBaseUrl === "string" && cortexConfig.apiBaseUrl.trim()) ||
+            process.env.SONANCE_CORTEX_API_URL?.trim() ||
+            process.env.CORTEX_URL?.trim() ||
+            undefined;
+          const apiKey =
+            (typeof ctConfig.apiKey === "string" && ctConfig.apiKey.trim()) ||
+            (typeof cortexConfig.apiKey === "string" && cortexConfig.apiKey.trim()) ||
+            process.env.SONANCE_CORTEX_API_KEY?.trim() ||
+            process.env.CORTEX_API_KEY?.trim() ||
+            undefined;
+          return {
+            ...ctEntry,
+            enabled: ctEntry.enabled ?? true,
+            config: { ...ctConfig, ...(url ? { url } : {}), ...(apiKey ? { apiKey } : {}) },
+          };
+        })(),
       },
     },
   };

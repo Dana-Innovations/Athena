@@ -56,6 +56,8 @@ type LifecycleHost = {
   aiIntranetUrl?: string;
   /** Application ID in the AI Intranet. */
   appId?: string;
+  /** Gateway WebSocket URL override from bootstrap config. */
+  gatewayUrl?: string;
   /** Cortex user session. */
   cortexUser?: CortexAuthSession | null;
   /** SSO login loading state. */
@@ -86,11 +88,16 @@ export function handleConnected(host: LifecycleHost) {
             aiIntranetUrl: host.aiIntranetUrl,
             appId: host.appId,
             authToken,
+            supabaseUrl: host.supabaseUrl,
             onStatus: (status) => {
               host.cortexLoginStatus = status;
             },
           });
           host.cortexLoginStatus = null;
+          if (host.gatewayUrl) {
+            const appHost = host as unknown as { settings: import("./storage.ts").UiSettings };
+            appHost.settings = { ...appHost.settings, gatewayUrl: host.gatewayUrl };
+          }
           connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
         } catch (err) {
           host.cortexLoginError = err instanceof Error ? err.message : String(err);
@@ -110,6 +117,10 @@ export function handleConnected(host: LifecycleHost) {
         history.replaceState({}, "", bp || "/");
         return;
       }
+    }
+    if (host.gatewayUrl) {
+      const appHost = host as unknown as { settings: import("./storage.ts").UiSettings };
+      appHost.settings = { ...appHost.settings, gatewayUrl: host.gatewayUrl };
     }
     connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   });

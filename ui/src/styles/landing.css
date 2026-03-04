@@ -15,6 +15,21 @@
   .landing { min-height: 100dvh; }
 }
 
+/* --- Theme toggle (top-right corner) --- */
+
+.landing-theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 292px;
+  z-index: 100;
+}
+
+@media (max-width: 1024px) {
+  .landing-theme-toggle {
+    right: 1rem;
+  }
+}
+
 /* --- Animated background (reuses cortex-login-bg pattern) --- */
 
 .landing-bg {
@@ -75,6 +90,8 @@
 .landing-content {
   position: relative;
   z-index: 1;
+  max-width: calc(100vw - 280px);
+  overflow-x: clip;
 }
 
 /* --- Hero --- */
@@ -327,6 +344,49 @@
   color: var(--muted);
 }
 
+/* --- Fixed sidebar panel --- */
+
+.landing-sidebar {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 280px;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 50;
+  padding: 16px 14px;
+  overflow-y: auto;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-left: 1px solid var(--glass-border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-border) transparent;
+}
+
+.landing-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.landing-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.landing-sidebar::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 4px;
+}
+
+@media (max-width: 1024px) {
+  .landing-sidebar {
+    display: none;
+  }
+
+  .landing-content {
+    max-width: none;
+  }
+}
+
 /* --- Section shared styles --- */
 
 .landing-section {
@@ -453,7 +513,7 @@
   }
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 1600px) {
   .landing-grid {
     grid-template-columns: repeat(3, 1fr);
     gap: 20px;
@@ -904,11 +964,52 @@
   font-size: 0.95rem;
   color: var(--muted);
   max-width: 600px;
-  margin: 0 auto 48px;
+  margin: 0 auto 24px;
   line-height: 1.6;
 }
 
-/* --- Stats bar (3 hero stat cards) --- */
+/* --- Time range filter buttons --- */
+
+.landing-stats__filters {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 40px;
+  padding: 4px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.landing-stats__filter-btn {
+  padding: 7px 18px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.landing-stats__filter-btn:hover {
+  color: var(--fg);
+  background: var(--glass-bg);
+}
+
+.landing-stats__filter-btn.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* --- Stats bar (4 hero stat cards) --- */
 
 .landing-stats__bar {
   display: flex;
@@ -936,6 +1037,11 @@
 .landing-stats__stat:nth-child(1) { animation-delay: 0ms; }
 .landing-stats__stat:nth-child(2) { animation-delay: 80ms; }
 .landing-stats__stat:nth-child(3) { animation-delay: 160ms; }
+.landing-stats__stat:nth-child(4) { animation-delay: 240ms; }
+
+.landing-stats__stat--failed .landing-stats__number {
+  color: var(--error, #ef4444);
+}
 
 .landing-stats__stat:hover {
   border-color: var(--glass-border-hover);
@@ -1291,3 +1397,144 @@
     min-width: 0;
   }
 }
+
+/* ===========================================
+   What's New — Changelog entries
+   =========================================== */
+
+.landing-updates {
+  padding: 0 0 24px;
+}
+
+.landing-updates .landing-section__eyebrow,
+.landing-updates .landing-section__title,
+.landing-updates .landing-section__subtitle {
+  text-align: left;
+}
+
+.landing-updates .landing-section__eyebrow {
+  font-size: 0.65rem;
+}
+
+.landing-updates .landing-section__title {
+  font-size: 1rem;
+}
+
+.landing-updates .landing-section__subtitle {
+  font-size: 0.72rem;
+  margin-bottom: 10px;
+}
+
+.landing-updates__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.landing-updates__entry {
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  animation: rise 0.4s var(--ease-out) backwards;
+}
+
+.landing-updates__entry:hover {
+  border-color: var(--glass-border-hover);
+}
+
+.landing-updates__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.landing-updates__badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.landing-updates__badge--feature {
+  background: rgba(0, 163, 225, 0.15);
+  color: var(--sonance-blue);
+}
+
+.landing-updates__badge--fix {
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+}
+
+.landing-updates__badge--improvement {
+  background: rgba(155, 89, 182, 0.15);
+  color: #9b59b6;
+}
+
+.landing-updates__badge--breaking {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+}
+
+.landing-updates__version {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.landing-updates__date {
+  font-size: 0.65rem;
+  color: var(--muted-strong);
+}
+
+.landing-updates__restart {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: #e67e22;
+  border: 1px solid rgba(230, 126, 34, 0.3);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.landing-updates__title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.landing-updates__desc {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.landing-updates__commands {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.landing-updates__cmd {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.65rem;
+  padding: 4px 8px;
+  border-radius: var(--radius-md, 8px);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  border: 1px solid var(--glass-border);
+  word-break: break-all;
+}
+
+:root[data-theme="light"] .landing-updates__cmd {
+  background: rgba(0, 0, 0, 0.04);
+}
+

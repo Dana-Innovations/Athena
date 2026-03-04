@@ -1,4 +1,5 @@
 import { html, nothing } from "lit";
+import { renderThemeToggle } from "../app-render.helpers.ts";
 import type { AppViewState } from "../app-view-state.ts";
 import { icons } from "../icons.ts";
 
@@ -455,7 +456,23 @@ interface LandingStats {
 }
 
 let landingStats: LandingStats | null = null;
-let statsLoaded = false;
+let statsLastFetched = 0;
+let statsInterval: ReturnType<typeof setInterval> | null = null;
+let statsTimeRange: "today" | "week" | "all" = "today";
+
+interface CortexUpdate {
+  id: string;
+  version: string;
+  title: string;
+  description: string;
+  update_commands: string[];
+  update_type: "breaking" | "feature" | "fix" | "improvement";
+  requires_restart: boolean;
+  published_at: string;
+}
+
+let cortexUpdates: CortexUpdate[] | null = null;
+let updatesLoaded = false;
 
 /** Friendly MCP display names */
 const MCP_DISPLAY_NAMES: Record<string, string> = {
@@ -515,8 +532,8 @@ function getFirstName(name: string | null): string {
 
 const RANK_MEDALS = ["", "\u{1F947}", "\u{1F948}", "\u{1F949}"];
 
-async function loadLandingStats(state: AppViewState) {
-  if (statsLoaded) {
+async function loadLandingStats(state: AppViewState, force = false) {
+  if (!force && Date.now() - statsLastFetched < 30_000) {
     return;
   }
 
@@ -526,7 +543,7 @@ async function loadLandingStats(state: AppViewState) {
     return;
   }
 
-  statsLoaded = true;
+  statsLastFetched = Date.now();
 
   try {
     const res = await fetch(`${url}/rest/v1/rpc/get_landing_stats`, {
@@ -536,7 +553,7 @@ async function loadLandingStats(state: AppViewState) {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      body: "{}",
+      body: JSON.stringify({ time_range: statsTimeRange }),
     });
     if (!res.ok) {
       return;
@@ -549,6 +566,42 @@ async function loadLandingStats(state: AppViewState) {
     }
   } catch {
     // Graceful degradation — stats section just won't show
+  }
+}
+
+async function loadCortexUpdates(state: AppViewState) {
+  if (updatesLoaded) {
+    return;
+  }
+
+  const url = state.supabaseUrl;
+  const key = state.supabaseAnonKey;
+  if (!url || !key) {
+    return;
+  }
+
+  updatesLoaded = true;
+
+  try {
+    const res = await fetch(`${url}/rest/v1/rpc/get_cortex_updates`, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ result_limit: 5 }),
+    });
+    if (!res.ok) {
+      return;
+    }
+    cortexUpdates = await res.json();
+    const host = document.querySelector("openclaw-app");
+    if (host) {
+      (host as unknown as { requestUpdate: () => void }).requestUpdate();
+    }
+  } catch {
+    // Graceful degradation
   }
 }
 
@@ -684,13 +737,37 @@ function renderMcpDetail(mcp: McpEntry) {
 /*  Stats section render                                              */
 /* ------------------------------------------------------------------ */
 
-function renderStatsSection() {
+function setStatsTimeRange(range: "today" | "week" | "all", state: AppViewState) {
+  if (range === statsTimeRange) {
+    return;
+  }
+  statsTimeRange = range;
+  statsLastFetched = 0;
+  void loadLandingStats(state, true);
+}
+
+const TIME_RANGE_LABELS: Record<
+  string,
+  { total: string; success: string; failed: string; tools: string }
+> = {
+  today: { total: "Total Calls", success: "Successful", failed: "Failed", tools: "Tools Used" },
+  week: { total: "Total This Week", success: "Successful", failed: "Failed", tools: "Tools Used" },
+  all: {
+    total: "All-Time Calls",
+    success: "All-Time Success",
+    failed: "All-Time Failed",
+    tools: "All Tools",
+  },
+};
+
+function renderStatsSection(state: AppViewState) {
   if (!landingStats) {
     return nothing;
   }
 
   const { today, totals, leaderboard, popular_mcps, recent_activity } = landingStats;
   const maxCalls = popular_mcps?.[0]?.calls ?? 1;
+  const labels = TIME_RANGE_LABELS[statsTimeRange];
 
   return html`
     <section class="landing-stats">
@@ -700,21 +777,35 @@ function renderStatsSection() {
         Real stats from your team. See who's leading the charge and which integrations are the most popular.
       </p>
 
-      <!-- Stats bar: 3 hero cards -->
+      <div class="landing-stats__filters">
+        <button class="landing-stats__filter-btn ${statsTimeRange === "today" ? "active" : ""}"
+          @click=${() => setStatsTimeRange("today", state)}>Today</button>
+        <button class="landing-stats__filter-btn ${statsTimeRange === "week" ? "active" : ""}"
+          @click=${() => setStatsTimeRange("week", state)}>This Week</button>
+        <button class="landing-stats__filter-btn ${statsTimeRange === "all" ? "active" : ""}"
+          @click=${() => setStatsTimeRange("all", state)}>All Time</button>
+      </div>
+
+      <!-- Stats bar: 4 hero cards -->
       <div class="landing-stats__bar">
         <div class="landing-stats__stat">
           <div class="landing-stats__number">${formatNumber(today.calls)}</div>
-          <div class="landing-stats__label">Actions Today</div>
-          <div class="landing-stats__detail">${today.users} active users &middot; ${today.mcps} integrations</div>
+          <div class="landing-stats__label">${labels.total}</div>
+          <div class="landing-stats__detail">${today.users} active users</div>
         </div>
         <div class="landing-stats__stat">
           <div class="landing-stats__number">${formatNumber(totals.calls)}</div>
-          <div class="landing-stats__label">Total Actions</div>
-          <div class="landing-stats__detail">${totals.users} team members onboarded</div>
+          <div class="landing-stats__label">${labels.success}</div>
+          <div class="landing-stats__detail">${today.mcps} integrations</div>
+        </div>
+        <div class="landing-stats__stat landing-stats__stat--failed">
+          <div class="landing-stats__number">${formatNumber(today.calls - totals.calls)}</div>
+          <div class="landing-stats__label">${labels.failed}</div>
+          <div class="landing-stats__detail">${today.calls > 0 ? Math.round(((today.calls - totals.calls) / today.calls) * 100) : 0}% failure rate</div>
         </div>
         <div class="landing-stats__stat">
           <div class="landing-stats__number">${totals.tools_used}</div>
-          <div class="landing-stats__label">Tools Explored</div>
+          <div class="landing-stats__label">${labels.tools}</div>
           <div class="landing-stats__detail">Across all integrations</div>
         </div>
       </div>
@@ -789,6 +880,82 @@ function renderStatsSection() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  What's New section render                                         */
+/* ------------------------------------------------------------------ */
+
+const UPDATE_TYPE_CONFIG: Record<string, { label: string; className: string }> = {
+  breaking: { label: "Breaking", className: "landing-updates__badge--breaking" },
+  feature: { label: "New", className: "landing-updates__badge--feature" },
+  fix: { label: "Fix", className: "landing-updates__badge--fix" },
+  improvement: { label: "Improved", className: "landing-updates__badge--improvement" },
+};
+
+function formatUpdateDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function renderUpdatesSection() {
+  if (!cortexUpdates?.length) {
+    return nothing;
+  }
+
+  return html`
+    <section class="landing-updates">
+      <p class="landing-section__eyebrow">Changelog</p>
+      <h2 class="landing-section__title">What's New</h2>
+      <p class="landing-section__subtitle">
+        Recent updates to Cortex MCP. Run the listed commands to update your instance.
+      </p>
+
+      <div class="landing-updates__list">
+        ${cortexUpdates.map((update) => {
+          const typeConfig = UPDATE_TYPE_CONFIG[update.update_type] ?? UPDATE_TYPE_CONFIG.feature;
+          return html`
+            <div class="landing-updates__entry">
+              <div class="landing-updates__header">
+                <span class="landing-updates__badge ${typeConfig.className}">
+                  ${typeConfig.label}
+                </span>
+                <span class="landing-updates__version">v${update.version}</span>
+                <span class="landing-updates__date">
+                  ${formatUpdateDate(update.published_at)}
+                </span>
+                ${
+                  update.requires_restart
+                    ? html`
+                        <span class="landing-updates__restart">Restart required</span>
+                      `
+                    : nothing
+                }
+              </div>
+              <div class="landing-updates__title">${update.title}</div>
+              <div class="landing-updates__desc">${update.description}</div>
+              ${
+                update.update_commands.length
+                  ? html`
+                    <div class="landing-updates__commands">
+                      ${update.update_commands.map(
+                        (cmd) => html`
+                          <div class="landing-updates__cmd">
+                            <span class="landing-code__prefix">$</span>
+                            ${cmd}
+                          </div>
+                        `,
+                      )}
+                    </div>
+                  `
+                  : nothing
+              }
+            </div>
+          `;
+        })}
+      </div>
+    </section>
+  `;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main render                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -800,14 +967,21 @@ export function renderLanding(state: AppViewState) {
   // Resolve the host element for requestUpdate
   const host = document.querySelector("openclaw-app");
 
-  // Load stats on first render (fire-and-forget)
+  // Load stats and updates (fire-and-forget), poll stats every 30s
   void loadLandingStats(state);
+  void loadCortexUpdates(state);
+  if (!statsInterval) {
+    statsInterval = setInterval(() => void loadLandingStats(state), 30_000);
+  }
 
   // Find the selected MCP for overlay
   const selectedMcp = selectedMcpId ? MCPS.find((m) => m.id === selectedMcpId) : null;
 
   return html`
     <div class="landing">
+      <!-- Theme toggle -->
+      <div class="landing-theme-toggle">${renderThemeToggle(state)}</div>
+
       <!-- Animated background -->
       <div class="landing-bg">
         <div class="landing-bg__orb landing-bg__orb--1"></div>
@@ -967,7 +1141,7 @@ export function renderLanding(state: AppViewState) {
         </section>
 
         <!-- ===== Usage Stats ===== -->
-        ${renderStatsSection()}
+        ${renderStatsSection(state)}
 
         <!-- ===== Bottom CTA ===== -->
         <section class="landing-cta">
@@ -989,6 +1163,11 @@ export function renderLanding(state: AppViewState) {
           Sonance &middot; Cortex MCP
         </footer>
       </div>
+
+      <!-- What's New sidebar -->
+      <aside class="landing-sidebar">
+        ${renderUpdatesSection()}
+      </aside>
 
       <!-- MCP Detail Overlay -->
       ${selectedMcp ? renderMcpDetail(selectedMcp) : nothing}

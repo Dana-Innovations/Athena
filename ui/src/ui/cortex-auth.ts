@@ -116,14 +116,21 @@ export async function completeSsoCallback(opts: {
   aiIntranetUrl: string;
   appId: string;
   authToken: string;
+  supabaseUrl?: string;
   onStatus?: (status: string) => void;
 }): Promise<CortexAuthSession> {
-  const { aiIntranetUrl, appId, authToken, onStatus } = opts;
-  const baseUrl = aiIntranetUrl.replace(/\/+$/, "");
+  const { aiIntranetUrl, appId, authToken, supabaseUrl, onStatus } = opts;
 
   // Validate the auth_token via central-check (Mode A: auth_token).
+  // When supabaseUrl is available, route through the sso-auth-proxy Edge
+  // Function to avoid CORS issues with cross-origin calls to AI Intranet.
   onStatus?.("Validating authentication\u2026");
-  const checkUrl = new URL(`${baseUrl}/api/auth/central-check`);
+  let checkUrl: URL;
+  if (supabaseUrl) {
+    checkUrl = new URL(`${supabaseUrl.replace(/\/+$/, "")}/functions/v1/sso-auth-proxy`);
+  } else {
+    checkUrl = new URL(`${aiIntranetUrl.replace(/\/+$/, "")}/api/auth/central-check`);
+  }
   checkUrl.searchParams.set("application", appId);
   checkUrl.searchParams.set("auth_token", authToken);
 
