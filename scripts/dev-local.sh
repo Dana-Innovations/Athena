@@ -157,7 +157,7 @@ cat > "$CONFIG_DIR/openclaw.json" <<EOCFG
     }
   },
   "gateway": {
-    "auth": { "mode": "none" }
+    "auth": { "mode": "cortex" }
   },
   "tools": { "alsoAllow": ["cortex_m365__*"] },
   "agents": {

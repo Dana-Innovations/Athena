@@ -424,6 +424,7 @@ export const OpenClawSchema = z
                 z.literal("password"),
                 z.literal("trusted-proxy"),
                 z.literal("sonance-sso"),
+                z.literal("cortex"),
               ])
               .optional(),
             token: z.string().optional().register(sensitive),
