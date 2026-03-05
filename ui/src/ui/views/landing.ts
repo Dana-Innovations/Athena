@@ -1140,6 +1140,60 @@ export function renderLanding(state: AppViewState) {
           </div>
         </section>
 
+        <!-- ===== Mobile & Web Access ===== -->
+        <section class="landing-section landing-mobile">
+          <p class="landing-section__eyebrow">Mobile & Web</p>
+          <h2 class="landing-section__title">Use It Anywhere</h2>
+          <p class="landing-section__subtitle">
+            Access all 11 integrations from your phone, tablet, or any browser \u2014 no terminal needed.
+            Connect once and your tools sync across every device.
+          </p>
+
+          <div class="landing-mobile__steps">
+            <div class="landing-mobile__step">
+              <div class="landing-steps__number">1</div>
+              <div class="landing-steps__content">
+                <div class="landing-steps__title">Open the Link</div>
+                <div class="landing-steps__desc">
+                  Visit the connect page below or scan the QR code from your phone.
+                </div>
+              </div>
+            </div>
+            <div class="landing-mobile__step">
+              <div class="landing-steps__number">2</div>
+              <div class="landing-steps__content">
+                <div class="landing-steps__title">Sign in with Okta</div>
+                <div class="landing-steps__desc">
+                  One-time SSO authentication \u2014 same company login you already use.
+                </div>
+              </div>
+            </div>
+            <div class="landing-mobile__step">
+              <div class="landing-steps__number">3</div>
+              <div class="landing-steps__content">
+                <div class="landing-steps__title">Use on Any Device</div>
+                <div class="landing-steps__desc">
+                  All your tools appear in Claude automatically \u2014 web, desktop, iOS, and Android.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="landing-mobile__actions">
+            <a
+              class="landing-mobile__cta"
+              href="https://cortex-bice.vercel.app/connect"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Connect to Claude
+            </a>
+            <p class="landing-mobile__note">
+              Works with Claude on web, desktop, iOS, and Android
+            </p>
+          </div>
+        </section>
+
         <!-- ===== Usage Stats ===== -->
         ${renderStatsSection(state)}
 
