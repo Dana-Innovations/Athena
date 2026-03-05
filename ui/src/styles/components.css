@@ -2988,6 +2988,44 @@
 }
 
 /* ===========================================
+   Dashboard View Toggle
+   =========================================== */
+
+.dashboard-view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+  width: fit-content;
+  margin: 0 auto 16px auto;
+}
+
+.dashboard-view-toggle__btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #888);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dashboard-view-toggle__btn:hover {
+  color: var(--text-primary, #fff);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dashboard-view-toggle__btn.active {
+  color: var(--text-primary, #fff);
+  background: var(--glass-bg-hover, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ===========================================
    Identity Dashboard
    =========================================== */
 
