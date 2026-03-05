@@ -5,6 +5,10 @@ export const TAB_GROUPS = [
   { label: "home", tabs: ["dashboard"] },
   { label: "chat", tabs: ["chat"] },
   { label: "cortex", tabs: ["usage"] },
+  {
+    label: "platform",
+    tabs: ["platform-overview", "platform-conversations", "platform-memory", "platform-audit"],
+  },
   { label: "settings", tabs: ["config"] },
   { label: "admin", tabs: ["admin"] },
 ] as const;
