@@ -118,6 +118,12 @@ export function handleConnected(host: LifecycleHost) {
         return;
       }
     }
+    // Load dashboard stats directly from Supabase (doesn't need gateway connection)
+    if (host.tab === "dashboard") {
+      void import("./controllers/dashboard-stats.ts").then(({ loadDashboardStats }) => {
+        void loadDashboardStats(host as unknown as Parameters<typeof loadDashboardStats>[0]);
+      });
+    }
     if (host.gatewayUrl) {
       const appHost = host as unknown as { settings: import("./storage.ts").UiSettings };
       appHost.settings = { ...appHost.settings, gatewayUrl: host.gatewayUrl };

@@ -190,8 +190,10 @@ export function setTheme(host: SettingsHost, next: ThemeMode, context?: ThemeTra
 
 export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "dashboard") {
-    const { loadDashboardData } = await import("./controllers/dashboard.ts");
-    await loadDashboardData(host as unknown as Parameters<typeof loadDashboardData>[0]);
+    const { loadCortexConnections } = await import("./controllers/agents.ts");
+    const { loadDashboardStats } = await import("./controllers/dashboard-stats.ts");
+    void loadCortexConnections(host as unknown as OpenClawApp);
+    void loadDashboardStats(host as unknown as OpenClawApp);
   }
   if (host.tab === "overview") {
     await loadOverview(host);

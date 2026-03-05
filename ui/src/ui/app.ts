@@ -354,6 +354,9 @@ export class OpenClawApp extends LitElement {
     null;
   @state() upstreamFullReviewLoading = false;
 
+  @state() dashboardStats: import("./controllers/dashboard-stats.js").DashboardStats | null = null;
+  @state() dashboardStatsLoading = false;
+
   @state() adminPanel: "users" | "usage" | "mcp" = "users";
   @state() adminLoading = false;
   @state() adminError: string | null = null;

@@ -590,7 +590,7 @@ async function loadCortexUpdates(state: AppViewState) {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ result_limit: 5 }),
+      body: JSON.stringify({ result_limit: 1000 }),
     });
     if (!res.ok) {
       return;

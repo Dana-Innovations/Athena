@@ -4,6 +4,15 @@ import type { IconName } from "./icons.js";
 export const TAB_GROUPS = [
   { label: "home", tabs: ["dashboard"] },
   { label: "chat", tabs: ["chat"] },
+  { label: "cortex", tabs: ["usage"] },
+  { label: "settings", tabs: ["config"] },
+  { label: "admin", tabs: ["admin"] },
+] as const;
+
+/** Legacy tab groups preserved for reference / future re-enablement. */
+export const TAB_GROUPS_LEGACY = [
+  { label: "home", tabs: ["dashboard"] },
+  { label: "chat", tabs: ["chat"] },
   {
     label: "control",
     tabs: ["overview", "channels", "instances", "sessions", "usage", "cron"],

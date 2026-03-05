@@ -265,6 +265,8 @@ export type AppViewState = {
   upstreamApplyLoading: boolean;
   upstreamFullReview: FullReviewResult | null;
   upstreamFullReviewLoading: boolean;
+  dashboardStats: import("./controllers/dashboard-stats.ts").DashboardStats | null;
+  dashboardStatsLoading: boolean;
   adminPanel: "users" | "usage" | "mcp";
   adminLoading: boolean;
   adminError: string | null;

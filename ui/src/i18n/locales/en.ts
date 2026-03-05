@@ -16,6 +16,8 @@ export const en: TranslationMap = {
   nav: {
     home: "Home",
     chat: "Chat",
+    cortex: "Cortex",
+    admin: "Admin",
     control: "Control",
     agent: "Agent",
     sonance: "Sonance",

@@ -21,6 +21,7 @@ This document explains how to configure the Cortex backend so the Athena Dashboa
    - [Vercel (Deployments)](#67-vercel)
 7. [Adding a New MCP Widget](#7-adding-a-new-mcp-widget)
 8. [Troubleshooting](#8-troubleshooting)
+9. [Mobile & Web Access (Claude Custom Connectors)](#9-mobile--web-access-claude-custom-connectors)
 
 ---
 
@@ -996,3 +997,170 @@ The dashboard caches data for 5 minutes. To force a refresh:
 | Monday     | `monday__list_items`         | `{ limit: 10 }`                                                                                                                      | `items` → parse `.items[]`                |
 | Supabase   | `supabase__list_tables`      | `{ schemas: ["public"] }`                                                                                                            | `tables` → parse `.tables[]`              |
 | Vercel     | `vercel__list_deployments`   | `{ limit: 8 }`                                                                                                                       | `deployments` → parse `.deployments[]`    |
+
+---
+
+## 9. Mobile & Web Access (Claude Custom Connectors)
+
+Cortex supports direct access from Claude's web and mobile apps via **Custom Connectors**. This lets employees use all 11 MCP services (GitHub, Salesforce, M365, Slack, Asana, Monday, etc.) from their phone or tablet — no local setup, no CLI, no Node.js required.
+
+### Overview
+
+```
+┌───────────────────┐                        ┌─────────────────────┐
+│  Claude (Web/iOS/  │  ── OAuth 2.1 + PKCE ─►│  Cortex Platform    │
+│  Android)          │  ◄── MCP JSON-RPC ────│  (Vercel)           │
+└───────────────────┘                        └─────────────────────┘
+        │                                            │
+        │  1. Discover OAuth endpoints               │  4. Resolve per-user
+        │     GET /.well-known/oauth-                │     MCP tokens
+        │     authorization-server                   │     (GitHub, M365, etc.)
+        │                                            │
+        │  2. Register client (DCR)                  │  5. Execute MCP tool
+        │     POST /api/v1/oauth2/register           │     via protocol bridge
+        │                                            │
+        │  3. Authenticate user                      │  6. Return results
+        │     GET /api/v1/oauth2/sso/authorize       │
+        │     → Okta SSO → auth code → tokens        │
+        └────────────────────────────────────────────┘
+```
+
+Once connected, Claude stores the OAuth tokens and auto-refreshes them. The connector syncs across all of a user's Claude devices (web, desktop app, iOS, Android).
+
+### Connect Page
+
+Cortex provides a landing page for easy onboarding:
+
+```
+https://cortex-bice.vercel.app/connect
+```
+
+This page includes:
+
+- A **"Connect to Claude"** button that deep-links into Claude's connector setup with the Cortex URL pre-filled
+- A **QR code** for mobile setup (scan from phone when viewing on desktop)
+- Step-by-step instructions
+
+**To onboard employees**, share this link via Slack, email, or your internal wiki:
+
+> Get Cortex on your phone: https://cortex-bice.vercel.app/connect
+
+### User Setup Steps
+
+#### Non-technical employees (recommended):
+
+1. Open `https://cortex-bice.vercel.app/connect` in a browser
+2. Click **"Connect to Claude"** — claude.ai opens with the connector pre-filled
+3. Sign in with your company **Okta** account
+4. Done — Cortex tools appear in Claude on web, desktop, and mobile
+
+> **Note:** Connectors can only be added from claude.ai on web (not directly from the mobile app). After the one-time web setup, tools sync automatically to Claude iOS/Android.
+
+#### CLI users (alternative):
+
+```bash
+cortex-mcp connect-mobile
+```
+
+This opens the connect page in your browser.
+
+#### Manual setup (advanced):
+
+1. Go to [claude.ai](https://claude.ai) → **Settings** → **Connectors** → **Add custom connector**
+2. Enter the MCP URL:
+   - All MCPs: `https://cortex-bice.vercel.app/mcp/cortex`
+   - Single MCP: `https://cortex-bice.vercel.app/mcp/github` (or `slack`, `m365`, etc.)
+3. Complete the Okta SSO authentication
+4. Tools are now available
+
+### What Employees Get
+
+After connecting, these MCP tools are available in Claude on any device:
+
+| MCP            | Example Use Cases                                         |
+| -------------- | --------------------------------------------------------- |
+| **M365**       | "Show my unread emails", "What meetings do I have today?" |
+| **GitHub**     | "List open PRs in our repo", "Show recent commits"        |
+| **Salesforce** | "What's in my pipeline?", "Show recent opportunities"     |
+| **Asana**      | "What tasks are due this week?"                           |
+| **Monday**     | "Show my board items"                                     |
+| **Slack**      | "Search for messages about project X"                     |
+| **Vercel**     | "Show recent deployments"                                 |
+| **Supabase**   | "List database tables"                                    |
+| **Power BI**   | "Show my dashboards"                                      |
+
+All tools respect **per-user OAuth connections** — each employee sees their own data (their inbox, their Salesforce pipeline, etc.).
+
+### How Authentication Works
+
+The mobile/web flow uses **OAuth 2.1 Authorization Code + PKCE**, the same standard used by enterprise apps:
+
+1. **Discovery** — Claude fetches `GET /.well-known/oauth-authorization-server` from Cortex to learn the OAuth endpoints
+2. **Dynamic Client Registration** — Claude registers itself as an OAuth client via `POST /api/v1/oauth2/register` (one-time, per user)
+3. **Authorization** — Claude opens `GET /api/v1/oauth2/sso/authorize` in the browser, which redirects to Okta SSO
+4. **Token Exchange** — After SSO, Claude receives an authorization code and exchanges it for access + refresh tokens via `POST /api/v1/oauth2/token`
+5. **MCP Calls** — Claude sends MCP requests to `POST /mcp/cortex` with `Authorization: Bearer <token>`. Cortex resolves the user's per-MCP OAuth tokens automatically.
+6. **Token Refresh** — When the access token expires, Claude uses the refresh token to get a new one (transparent to the user)
+
+### Cortex Endpoints Involved
+
+| Endpoint                                  | Method | Purpose                                   |
+| ----------------------------------------- | ------ | ----------------------------------------- |
+| `/.well-known/oauth-authorization-server` | GET    | OAuth metadata discovery (RFC 8414)       |
+| `/api/v1/oauth2/register`                 | POST   | Dynamic Client Registration (RFC 7591)    |
+| `/api/v1/oauth2/sso/authorize`            | GET    | Start OAuth + Okta SSO flow               |
+| `/api/v1/oauth2/sso/callback`             | GET    | Complete SSO, redirect with auth code     |
+| `/api/v1/oauth2/token`                    | POST   | Exchange code for tokens / refresh tokens |
+| `/api/v1/oauth2/revoke`                   | POST   | Revoke tokens                             |
+| `/api/v1/oauth2/userinfo`                 | GET    | Get authenticated user profile            |
+| `/mcp/cortex`                             | POST   | Composite MCP endpoint (all tools)        |
+| `/mcp/{name}`                             | POST   | Per-MCP endpoint (e.g., `/mcp/github`)    |
+
+### Relationship to Dashboard
+
+The mobile/web connector and the Athena Dashboard use **different auth paths** but the same Cortex backend:
+
+|                  | Dashboard (Athena)                       | Mobile/Web (Claude)               |
+| ---------------- | ---------------------------------------- | --------------------------------- |
+| **Auth**         | Service API key + token exchange         | OAuth 2.1 + PKCE via SSO          |
+| **Transport**    | REST (`POST /api/v1/tools/{mcp}/{tool}`) | MCP protocol (`POST /mcp/{name}`) |
+| **User context** | Token exchange per user email            | OAuth token per user              |
+| **MCP tokens**   | Same per-user token resolver             | Same per-user token resolver      |
+
+Both paths resolve to the same `mcp_connections` and per-user OAuth tokens. If a user has connected their Asana account via the Athena UI, it works on mobile too — and vice versa.
+
+### Troubleshooting
+
+#### Connector added but no tools appear
+
+**Cause:** OAuth flow didn't complete, or Claude couldn't discover the OAuth endpoints.
+
+**Debug steps:**
+
+1. Check that `https://cortex-bice.vercel.app/.well-known/oauth-authorization-server` returns valid JSON
+2. Verify the user completed Okta SSO (didn't close the browser mid-flow)
+3. Try removing the connector in Claude settings and re-adding it
+4. Check Cortex logs for DCR or SSO errors
+
+#### Tools appear but return "Authentication failed"
+
+**Cause:** The user's OAuth token for a specific MCP has expired or was never connected.
+
+**Fix:** The user needs to connect their personal account for that MCP:
+
+1. Run `cortex-mcp connect <provider>` from desktop CLI, OR
+2. Go to the Athena **Agents > Tools** page and click "Connect" next to the MCP
+
+Company-default MCPs (GitHub, Vercel, Supabase, Best Buy) work without personal connection.
+
+#### Mobile app doesn't show the connector
+
+**Cause:** Connectors can only be added from claude.ai on web, not from the mobile app directly.
+
+**Fix:** Complete the connector setup on `claude.ai` in a desktop or mobile browser. The connector syncs to Claude iOS/Android automatically within a few minutes.
+
+#### "Too many registration requests" error
+
+**Cause:** DCR rate limit hit (20 registrations per hour per IP).
+
+**Fix:** Wait an hour and try again. This typically only happens during testing — normal usage registers once per user.
