@@ -32,7 +32,11 @@ export function checkBrowserOrigin(params: {
   }
 
   const allowlist = (params.allowedOrigins ?? [])
-    .map((value) => value.trim().toLowerCase())
+    .map((value) => {
+      const trimmed = value.trim().toLowerCase();
+      // URL.origin never has a trailing slash; normalize to match
+      return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
+    })
     .filter(Boolean);
   if (allowlist.includes(parsedOrigin.origin)) {
     return { ok: true };

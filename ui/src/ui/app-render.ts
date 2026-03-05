@@ -81,7 +81,7 @@ import {
   reviewAllUpdates,
 } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
-import { TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
+import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab } from "./navigation.ts";
 import { renderAdmin } from "./views/admin.ts";
 import { renderAgents } from "./views/agents.ts";
 import { renderApollo } from "./views/apollo.ts";
@@ -90,6 +90,7 @@ import { renderChat } from "./views/chat.ts";
 import { renderConfig } from "./views/config.ts";
 import { renderCron } from "./views/cron.ts";
 import { renderDashboardIdentity } from "./views/dashboard-identity.ts";
+import { renderDashboard } from "./views/dashboard-legacy.ts";
 import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
@@ -194,12 +195,12 @@ export function renderApp(state: AppViewState) {
         </div>
       </header>
       <aside class="nav ${state.settings.navCollapsed ? "nav--collapsed" : ""}">
-        ${TAB_GROUPS.filter(
-          (group) => group.label !== "admin" || state.cortexUser?.role === "admin",
-        ).map((group) => {
-          const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
-          const hasActiveTab = group.tabs.some((tab) => tab === state.tab);
-          return html`
+        ${(state.settings.dashboardView === "legacy" ? TAB_GROUPS_LEGACY : TAB_GROUPS)
+          .filter((group) => group.label !== "admin" || state.cortexUser?.role === "admin")
+          .map((group) => {
+            const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
+            const hasActiveTab = group.tabs.some((tab) => tab === state.tab);
+            return html`
             <div class="nav-group ${isGroupCollapsed && !hasActiveTab ? "nav-group--collapsed" : ""}">
               <button
                 class="nav-label"
@@ -221,7 +222,7 @@ export function renderApp(state: AppViewState) {
               </div>
             </div>
           `;
-        })}
+          })}
         <div class="nav-group nav-group--links">
           <div class="nav-label nav-label--static">
             <span class="nav-label__text">${t("common.resources")}</span>
@@ -255,20 +256,70 @@ export function renderApp(state: AppViewState) {
 
         ${
           state.tab === "dashboard"
-            ? renderDashboardIdentity({
-                user: state.cortexUser ?? null,
-                connections: state.cortexConnections,
-                connectionsLoaded: state.cortexConnectionsLoaded,
-                dashboardStats: state.dashboardStats ?? null,
-                dashboardStatsLoading: state.dashboardStatsLoading,
-                connected: state.connected,
-                onLoadConnections: () => {
-                  void loadCortexConnections(state);
-                },
-                onConnectMcp: (mcpName: string) => {
-                  void initiateOAuthConnect(state, mcpName);
-                },
-              })
+            ? html`
+                <div class="dashboard-view-toggle">
+                  <button
+                    class="dashboard-view-toggle__btn ${state.settings.dashboardView !== "legacy" ? "active" : ""}"
+                    @click=${() => state.applySettings({ ...state.settings, dashboardView: "identity" })}
+                  >
+                    Identity
+                  </button>
+                  <button
+                    class="dashboard-view-toggle__btn ${state.settings.dashboardView === "legacy" ? "active" : ""}"
+                    @click=${() => {
+                      state.applySettings({ ...state.settings, dashboardView: "legacy" });
+                      void import("./controllers/dashboard.ts").then(({ loadDashboardData }) => {
+                        void loadDashboardData(state);
+                      });
+                    }}
+                  >
+                    Classic
+                  </button>
+                </div>
+                ${
+                  state.settings.dashboardView === "legacy"
+                    ? renderDashboard({
+                        loading: state.dashboardLoading,
+                        error: state.dashboardError,
+                        widgets: state.dashboardWidgets,
+                        connections: state.cortexConnections,
+                        connectionsLoaded: state.cortexConnectionsLoaded,
+                        lastRefreshAt: state.dashboardLastRefreshAt,
+                        userName:
+                          state.cortexUser?.displayName ??
+                          state.cortexUser?.email?.split("@")[0] ??
+                          null,
+                        onRefresh: () => {
+                          void import("./controllers/dashboard.ts").then(
+                            ({ forceRefreshDashboard }) => {
+                              void forceRefreshDashboard(state);
+                            },
+                          );
+                        },
+                        onRefreshWidget: (mcpName: string) => {
+                          void import("./controllers/dashboard.ts").then(
+                            ({ refreshDashboardWidget }) => {
+                              void refreshDashboardWidget(state, mcpName);
+                            },
+                          );
+                        },
+                      })
+                    : renderDashboardIdentity({
+                        user: state.cortexUser ?? null,
+                        connections: state.cortexConnections,
+                        connectionsLoaded: state.cortexConnectionsLoaded,
+                        dashboardStats: state.dashboardStats ?? null,
+                        dashboardStatsLoading: state.dashboardStatsLoading,
+                        connected: state.connected,
+                        onLoadConnections: () => {
+                          void loadCortexConnections(state);
+                        },
+                        onConnectMcp: (mcpName: string) => {
+                          void initiateOAuthConnect(state, mcpName);
+                        },
+                      })
+                }
+              `
             : nothing
         }
         ${
