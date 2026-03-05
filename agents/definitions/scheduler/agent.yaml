@@ -1,0 +1,100 @@
+apiVersion: athena/v1
+kind: Agent
+metadata:
+  name: scheduler
+  displayName: "Scheduler"
+  description: "Automated scheduling, daily briefings, and calendar coordination for Sonance"
+  avatar: "scheduler.png"
+  aliases: ["@scheduler"]
+  team: company-wide
+  owner: josh@sonance.com
+
+spec:
+  runtime:
+    framework: openclaw
+    model:
+      primary: anthropic/claude-haiku-4-5-20251001
+      fallback: anthropic/claude-sonnet-4-5-20250929
+    compaction:
+      mode: safeguard
+
+  identity:
+    soulPath: ./SOUL.md
+    onboarding: false
+
+  persistence:
+    provider: azure-blob
+    quota: 512MB
+    layout:
+      workspace: /workspace
+      memory: /memory
+      cache: /cache
+
+  skills:
+    cortex:
+      mcps: ["m365"]
+      tools:
+        allow: ["cortex_m365__list_events", "cortex_m365__create_event", "cortex_m365__get_schedule", "cortex_m365__search_people", "cortex_m365__get_presence", "cortex_m365__get_profile"]
+
+  routing:
+    intentKeywords:
+      - "schedule"
+      - "meeting"
+      - "calendar"
+      - "book a"
+      - "free slot"
+      - "availability"
+      - "available"
+      - "busy"
+      - "conflict"
+      - "reschedule"
+      - "cancel meeting"
+      - "move my meeting"
+      - "when am i free"
+      - "when is"
+      - "find time"
+      - "set up a meeting"
+      - "block time"
+      - "focus time"
+      - "daily briefing"
+      - "weekly summary"
+      - "what's on my calendar"
+      - "what do i have today"
+      - "what do i have tomorrow"
+      - "what's my day look like"
+      - "next meeting"
+    priority: 10
+
+  gateways:
+    teams:
+      enabled: true
+      appId: "78bdfd6c-d857-4c2b-b9ea-7ce57befe693"
+      dmPolicy: disabled
+      groupPolicy: mention
+    api:
+      enabled: true
+      rateLimit: "200/min"
+
+  cron:
+    - name: daily-briefing
+      schedule: "0 7 * * 1-5"
+      action: compile-daily-briefing
+      targets: subscribed-users
+    - name: weekly-summary
+      schedule: "0 17 * * 5"
+      action: compile-weekly-summary
+      targets: all-managers
+    - name: conflict-scan
+      schedule: "*/30 * * * 1-5"
+      action: scan-calendar-conflicts
+      targets: affected-users
+
+  collaboration:
+    canContact: ["athena"]
+    acceptFrom: ["athena"]
+    maxDelegationDepth: 1
+
+  access:
+    owners: ["joshual@sonance.com"]
+    admins: ["elliott.amador@sonance.com"]
+    users: ["*@sonance.com"]

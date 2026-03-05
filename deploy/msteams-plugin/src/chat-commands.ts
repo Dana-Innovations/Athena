@@ -30,6 +30,7 @@ const COMMANDS: Record<string, string> = {
   "!directory": "List all registered agents",
   "!connect": "Use another user's agent. Usage: !connect Josh",
   "!disconnect": "Return to your own agent",
+  "!agents": "List available platform agents and how routing works",
 };
 
 export async function handleChatCommand(text: string, userId: string): Promise<ChatCommandResult> {

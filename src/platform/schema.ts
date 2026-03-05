@@ -96,6 +96,15 @@ const CronEntrySchema = z.object({
   targets: z.string().optional(),
 });
 
+const RoutingSchema = z.object({
+  /** Keywords/phrases that signal this agent should handle the message. */
+  intentKeywords: z.array(z.string()).optional(),
+  /** Higher priority agents are checked first (default 0). */
+  priority: z.number().int().default(0),
+  /** If true, this agent is the catch-all when no other agent matches. */
+  isDefault: z.boolean().default(false),
+});
+
 const CollaborationSchema = z.object({
   canContact: z.array(z.string()).optional(),
   acceptFrom: z.array(z.string()).default(["*"]),
@@ -114,6 +123,7 @@ const SpecSchema = z.object({
   persistence: PersistenceSchema.optional(),
   skills: SkillsSchema.optional(),
   gateways: GatewaysSchema.optional(),
+  routing: RoutingSchema.optional(),
   cron: z.array(CronEntrySchema).optional(),
   collaboration: CollaborationSchema.optional(),
   access: AccessSchema,
@@ -135,6 +145,7 @@ export type AgentRuntime = z.infer<typeof RuntimeSchema>;
 export type AgentSkills = z.infer<typeof SkillsSchema>;
 export type AgentGateways = z.infer<typeof GatewaysSchema>;
 export type AgentAccess = z.infer<typeof AccessSchema>;
+export type AgentRouting = z.infer<typeof RoutingSchema>;
 export type AgentCollaboration = z.infer<typeof CollaborationSchema>;
 export type CronEntry = z.infer<typeof CronEntrySchema>;
 

@@ -8,6 +8,9 @@
  *
  * These can always be overridden by explicit entries in openclaw.json.
  */
+import { loadPlatformAgentOverlay } from "../platform/adapter.js";
+
+let overlayApplied = false;
 
 /**
  * All channel plugin IDs that Sonance does not use.
@@ -149,7 +152,7 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
       }
     : models;
 
-  return {
+  const baseConfig = {
     ...config,
     gateway: mergedGateway,
     models: Object.keys(mergedModels).length > 0 ? mergedModels : undefined,
@@ -187,4 +190,63 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
       },
     },
   };
+
+  // Platform agent overlay: load agent.yaml definitions and merge into config.
+  // Only applies when agents/definitions/ exists and contains valid YAMLs.
+  // Explicit openclaw.json agents.list entries take precedence.
+  const existingAgentsList = (
+    (baseConfig as Record<string, unknown>).agents as Record<string, unknown> | undefined
+  )?.list;
+  if (!Array.isArray(existingAgentsList) || existingAgentsList.length === 0) {
+    try {
+      const stateDir =
+        process.env.OPENCLAW_STATE_DIR?.trim() ||
+        process.env.ATHENA_STATE_DIR?.trim() ||
+        ((baseConfig as Record<string, unknown>).stateDir as string | undefined) ||
+        "";
+      const overlay = loadPlatformAgentOverlay(stateDir || ".");
+      if (overlay) {
+        const existingAgents = ((baseConfig as Record<string, unknown>).agents ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const existingTools = ((baseConfig as Record<string, unknown>).tools ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const existingAlsoAllow = Array.isArray(existingTools.alsoAllow)
+          ? (existingTools.alsoAllow as string[])
+          : [];
+        const overlayAlsoAllow = overlay.tools?.alsoAllow ?? [];
+        const mergedAlsoAllow = [...new Set([...existingAlsoAllow, ...overlayAlsoAllow])];
+
+        (baseConfig as Record<string, unknown>).agents = {
+          ...existingAgents,
+          list: overlay.agents.list,
+          defaults: {
+            ...(existingAgents.defaults as Record<string, unknown> | undefined),
+            ...overlay.agents.defaults,
+          },
+        };
+        if (mergedAlsoAllow.length > 0) {
+          (baseConfig as Record<string, unknown>).tools = {
+            ...existingTools,
+            alsoAllow: mergedAlsoAllow,
+          };
+        }
+        if (!overlayApplied) {
+          console.log(
+            `[platform] loaded ${overlay.agents.list.length} agent(s) from agent.yaml definitions`,
+          );
+          overlayApplied = true;
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[platform] failed to load agent definitions: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return baseConfig as T;
 }

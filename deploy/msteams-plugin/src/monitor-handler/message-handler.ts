@@ -28,6 +28,10 @@ function resolveDefaultGroupPolicy(cfg: unknown): string | undefined {
   return undefined;
 }
 import {
+  resolveAgentFromMessage,
+  handleAgentsListCommand,
+} from "../../../../src/platform/router.js";
+import {
   buildMSTeamsAttachmentPlaceholder,
   buildMSTeamsMediaPayload,
   type MSTeamsAttachmentLike,
@@ -113,7 +117,7 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
     const text = params.text;
     const attachments = params.attachments;
     const attachmentPlaceholder = buildMSTeamsAttachmentPlaceholder(attachments);
-    const rawBody = text || attachmentPlaceholder;
+    let rawBody = text || attachmentPlaceholder;
     const from = activity.from;
     const conversation = activity.conversation;
 
@@ -376,6 +380,43 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       });
     }
 
+    // --- Platform agent routing (intent-based multi-agent dispatch) ---
+    const lowerBody = rawBody.trim().toLowerCase();
+    if (lowerBody === "!agents") {
+      try {
+        const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
+        const agentsReply = handleAgentsListCommand(registryRoot);
+        await context.sendActivity(agentsReply);
+      } catch (listErr) {
+        log.debug?.("agents list failed", { error: String(listErr) });
+        await context.sendActivity("Failed to list agents.");
+      }
+      return;
+    }
+
+    let platformRouteOverride: { agentId: string; strippedBody: string } | null = null;
+    try {
+      const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
+      const platformRoute = resolveAgentFromMessage(rawBody, senderId, registryRoot);
+      if (platformRoute) {
+        platformRouteOverride = {
+          agentId: platformRoute.agentId,
+          strippedBody: platformRoute.strippedBody,
+        };
+        if (platformRoute.matchedBy !== "default") {
+          log.info("platform router matched", {
+            agentId: platformRoute.agentId,
+            matchedBy: platformRoute.matchedBy,
+          });
+        }
+      }
+    } catch (routeErr) {
+      log.debug?.("platform route resolution failed, falling through", {
+        error: String(routeErr),
+      });
+    }
+    // --- End platform agent routing ---
+
     const cmdResult = await handleChatCommandWithConnect(rawBody, senderId);
     if (cmdResult.handled) {
       if (cmdResult.reply) {
@@ -431,7 +472,7 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
         : `msteams:group:${conversationId}`;
     const teamsTo = isDirectMessage ? `user:${senderId}` : `conversation:${conversationId}`;
 
-    const route = core.channel.routing.resolveAgentRoute({
+    let route = core.channel.routing.resolveAgentRoute({
       cfg: perUserCfg,
       channel: "msteams",
       peer: {
@@ -439,6 +480,35 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
         id: isDirectMessage ? senderId : conversationId,
       },
     });
+
+    // Platform router override: if the message targeted a specific agent, re-resolve
+    // the route with that agent's ID so the session key and dispatch align.
+    if (platformRouteOverride) {
+      rawBody = platformRouteOverride.strippedBody;
+      const agentList = perUserCfg.agents?.list ?? [];
+      const targetAgent = agentList.find(
+        (a: { id: string }) => a.id === platformRouteOverride!.agentId,
+      );
+      if (targetAgent) {
+        route = core.channel.routing.resolveAgentRoute({
+          cfg: {
+            ...perUserCfg,
+            bindings: [
+              {
+                agentId: platformRouteOverride.agentId,
+                match: { channel: "msteams" },
+              },
+              ...(perUserCfg.bindings ?? []),
+            ],
+          },
+          channel: "msteams",
+          peer: {
+            kind: isDirectMessage ? "direct" : isChannel ? "channel" : "group",
+            id: isDirectMessage ? senderId : conversationId,
+          },
+        });
+      }
+    }
 
     const preview = rawBody.replace(/\s+/g, " ").slice(0, 160);
     const inboundLabel = isDirectMessage

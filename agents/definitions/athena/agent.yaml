@@ -37,6 +37,9 @@ spec:
         allow: ["cortex_m365__*"]
         deny: ["cortex_m365__delete_*"]
 
+  routing:
+    isDefault: true
+
   gateways:
     teams:
       enabled: true
@@ -61,6 +64,6 @@ spec:
     maxDelegationDepth: 2
 
   access:
-    owners: ["josh@sonance.com"]
-    admins: ["elliott@sonance.com"]
+    owners: ["joshual@sonance.com"]
+    admins: ["elliott.amador@sonance.com"]
     users: ["*@sonance.com"]
