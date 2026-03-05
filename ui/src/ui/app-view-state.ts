@@ -32,6 +32,9 @@ import type { UiSettings } from "./storage.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
 import type { ThemeMode } from "./theme.ts";
 import type {
+  AdminActivityFilters,
+  AdminActivityFilterOptions,
+  AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
   AdminUsageDetail,
@@ -267,7 +270,7 @@ export type AppViewState = {
   upstreamFullReviewLoading: boolean;
   dashboardStats: import("./controllers/dashboard-stats.ts").DashboardStats | null;
   dashboardStatsLoading: boolean;
-  adminPanel: "users" | "usage" | "mcp";
+  adminPanel: "users" | "usage" | "mcp" | "activity";
   adminLoading: boolean;
   adminError: string | null;
   adminUsers: AdminUser[] | null;
@@ -276,6 +279,11 @@ export type AppViewState = {
   adminUsageDetails: AdminUsageDetail[] | null;
   adminMcps: AdminMcpInfo[] | null;
   adminMcpAccess: AdminMcpAccessEntry[] | null;
+  adminActivityLog: AdminActivityLogResponse | null;
+  adminActivityLogLoading: boolean;
+  adminActivityFilters: AdminActivityFilters;
+  adminActivityFilterOptions: AdminActivityFilterOptions | null;
+  adminActivityExpandedId: string | null;
   dashboardLoading: boolean;
   dashboardError: string | null;
   dashboardWidgets: Record<string, import("./types-dashboard.js").DashboardWidgetData>;

@@ -5,6 +5,11 @@ import { refreshChatAvatar } from "./app-chat.ts";
 import { renderUsageTab } from "./app-render-usage-tab.ts";
 import { renderChatControls, renderTab, renderThemeToggle } from "./app-render.helpers.ts";
 import type { AppViewState } from "./app-view-state.ts";
+import {
+  applyActivityLogFilter,
+  goToActivityLogPage,
+  type AdminActivityLogHost,
+} from "./controllers/admin-activity-log.ts";
 import { loadAdminData, type AdminState } from "./controllers/admin.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
@@ -634,12 +639,26 @@ export function renderApp(state: AppViewState) {
                 usageDetails: state.adminUsageDetails,
                 mcps: state.adminMcps,
                 mcpAccess: state.adminMcpAccess,
+                activityLog: state.adminActivityLog,
+                activityLogLoading: state.adminActivityLogLoading,
+                activityFilters: state.adminActivityFilters,
+                activityFilterOptions: state.adminActivityFilterOptions,
+                activityExpandedId: state.adminActivityExpandedId,
                 onPanelChange: (panel) => {
                   state.adminPanel = panel;
                   void loadAdminData(state as unknown as AdminState);
                 },
                 onUsersFilterChange: (filter) => {
                   state.adminUsersFilter = filter;
+                },
+                onActivityFilterChange: (key, value) => {
+                  applyActivityLogFilter(state as unknown as AdminActivityLogHost, key, value);
+                },
+                onActivityPageChange: (page) => {
+                  goToActivityLogPage(state as unknown as AdminActivityLogHost, page);
+                },
+                onActivityToggleExpand: (id) => {
+                  state.adminActivityExpandedId = state.adminActivityExpandedId === id ? null : id;
                 },
                 onRefresh: () => {
                   void loadAdminData(state as unknown as AdminState);

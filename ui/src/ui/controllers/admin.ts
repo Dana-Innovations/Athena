@@ -6,23 +6,37 @@
  */
 
 import type {
+  AdminActivityFilters,
+  AdminActivityFilterOptions,
+  AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
 } from "../types-admin.ts";
+import {
+  loadActivityLog,
+  loadActivityLogFilterOptions,
+  type AdminActivityLogHost,
+} from "./admin-activity-log.ts";
 
 export type AdminState = {
   adminLoading: boolean;
   adminError: string | null;
-  adminPanel: "users" | "usage" | "mcp";
+  adminPanel: "users" | "usage" | "mcp" | "activity";
   adminUsers: AdminUser[] | null;
   adminUsersFilter: string;
   adminUsageSummary: AdminUsageSummary | null;
   adminUsageDetails: AdminUsageDetail[] | null;
   adminMcps: AdminMcpInfo[] | null;
   adminMcpAccess: AdminMcpAccessEntry[] | null;
+  adminActivityLog: AdminActivityLogResponse | null;
+  adminActivityLogLoading: boolean;
+  adminActivityFilters: AdminActivityFilters;
+  adminActivityFilterOptions: AdminActivityFilterOptions | null;
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
   client: {
     request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   } | null;
@@ -94,5 +108,10 @@ export async function loadAdminData(state: AdminState): Promise<void> {
       return loadAdminUsage(state);
     case "mcp":
       return loadAdminMcpAccess(state);
+    case "activity": {
+      const host = state as unknown as AdminActivityLogHost;
+      void loadActivityLogFilterOptions(host);
+      return loadActivityLog(host);
+    }
   }
 }

@@ -7,12 +7,16 @@
 
 import { html, nothing } from "lit";
 import type {
+  AdminActivityFilters,
+  AdminActivityFilterOptions,
+  AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
 } from "../types-admin.ts";
+import { renderAdminActivityLog } from "./admin-activity-log.ts";
 import { renderAdminMcp } from "./admin-mcp.ts";
 import { renderAdminUsage } from "./admin-usage.ts";
 import { renderAdminUsers } from "./admin-users.ts";
@@ -20,15 +24,23 @@ import { renderAdminUsers } from "./admin-users.ts";
 export type AdminViewProps = {
   loading: boolean;
   error: string | null;
-  activePanel: "users" | "usage" | "mcp";
+  activePanel: "users" | "usage" | "mcp" | "activity";
   users: AdminUser[] | null;
   usersFilter: string;
   usageSummary: AdminUsageSummary | null;
   usageDetails: AdminUsageDetail[] | null;
   mcps: AdminMcpInfo[] | null;
   mcpAccess: AdminMcpAccessEntry[] | null;
-  onPanelChange: (panel: "users" | "usage" | "mcp") => void;
+  activityLog: AdminActivityLogResponse | null;
+  activityLogLoading: boolean;
+  activityFilters: AdminActivityFilters;
+  activityFilterOptions: AdminActivityFilterOptions | null;
+  activityExpandedId: string | null;
+  onPanelChange: (panel: "users" | "usage" | "mcp" | "activity") => void;
   onUsersFilterChange: (filter: string) => void;
+  onActivityFilterChange: (key: keyof AdminActivityFilters, value: string | null) => void;
+  onActivityPageChange: (page: number) => void;
+  onActivityToggleExpand: (id: string) => void;
   onRefresh: () => void;
 };
 
@@ -36,6 +48,7 @@ const PANELS = [
   { id: "users" as const, label: "Users" },
   { id: "usage" as const, label: "Usage" },
   { id: "mcp" as const, label: "MCP" },
+  { id: "activity" as const, label: "Activity" },
 ];
 
 export function renderAdmin(props: AdminViewProps) {
@@ -91,6 +104,22 @@ export function renderAdmin(props: AdminViewProps) {
         ? renderAdminMcp({
             mcps: props.mcps,
             mcpAccess: props.mcpAccess,
+          })
+        : nothing
+    }
+
+    ${
+      props.activePanel === "activity"
+        ? renderAdminActivityLog({
+            log: props.activityLog,
+            loading: props.activityLogLoading,
+            filters: props.activityFilters,
+            filterOptions: props.activityFilterOptions,
+            expandedId: props.activityExpandedId,
+            onFilterChange: props.onActivityFilterChange,
+            onPageChange: props.onActivityPageChange,
+            onToggleExpand: props.onActivityToggleExpand,
+            onRefresh: props.onRefresh,
           })
         : nothing
     }
