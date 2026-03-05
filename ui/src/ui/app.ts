@@ -357,7 +357,7 @@ export class OpenClawApp extends LitElement {
   @state() dashboardStats: import("./controllers/dashboard-stats.js").DashboardStats | null = null;
   @state() dashboardStatsLoading = false;
 
-  @state() adminPanel: "users" | "usage" | "mcp" = "users";
+  @state() adminPanel: "users" | "usage" | "mcp" | "activity" = "users";
   @state() adminLoading = false;
   @state() adminError: string | null = null;
   @state() adminUsers: import("./types-admin.js").AdminUser[] | null = null;
@@ -366,6 +366,20 @@ export class OpenClawApp extends LitElement {
   @state() adminUsageDetails: import("./types-admin.js").AdminUsageDetail[] | null = null;
   @state() adminMcps: import("./types-admin.js").AdminMcpInfo[] | null = null;
   @state() adminMcpAccess: import("./types-admin.js").AdminMcpAccessEntry[] | null = null;
+  @state() adminActivityLog: import("./types-admin.js").AdminActivityLogResponse | null = null;
+  @state() adminActivityLogLoading = false;
+  @state() adminActivityFilters: import("./types-admin.js").AdminActivityFilters = {
+    user_id: null,
+    service: null,
+    status: null,
+    search: null,
+    date_from: null,
+    date_to: null,
+  };
+  @state() adminActivityFilterOptions:
+    | import("./types-admin.js").AdminActivityFilterOptions
+    | null = null;
+  @state() adminActivityExpandedId: string | null = null;
 
   @state() dashboardLoading = false;
   @state() dashboardError: string | null = null;

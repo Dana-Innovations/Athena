@@ -71,3 +71,47 @@ export type AdminMcpAccessEntry = {
   >;
   connectionStatus: "connected" | "disconnected" | "never-connected";
 };
+
+export type AdminActivityEntry = {
+  id: string;
+  timestamp: string;
+  user_id: string;
+  user_email: string;
+  user_name: string | null;
+  service: "ai" | "mcp";
+  action: string;
+  detail: string | null;
+  status: "success" | "error";
+  tokens: number | null;
+  cost: number | null;
+  duration_ms: number | null;
+  tool_name: string | null;
+  mcp_name: string | null;
+  model: string | null;
+  error_message: string | null;
+  error_code: string | null;
+  params_summary: Record<string, unknown> | null;
+  result_preview: string | null;
+  status_code: number | null;
+};
+
+export type AdminActivityLogResponse = {
+  entries: AdminActivityEntry[];
+  total_count: number;
+  page: number;
+  page_size: number;
+};
+
+export type AdminActivityFilters = {
+  user_id: string | null;
+  service: string | null;
+  status: string | null;
+  search: string | null;
+  date_from: string | null;
+  date_to: string | null;
+};
+
+export type AdminActivityFilterOptions = {
+  users: { id: string; email: string; name: string | null }[];
+  services: string[];
+};
