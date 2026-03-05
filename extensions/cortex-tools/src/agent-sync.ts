@@ -32,13 +32,13 @@ export function syncCortexAgents(tools: CortexTool[], logger: MinimalLogger): vo
   const stateDir = resolveStateDir();
   const configPath = path.join(stateDir, "athena.json");
 
-  // Read existing config
+  // Read existing config (create if missing)
   let config: Record<string, unknown>;
   try {
     config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
   } catch {
-    logger.warn("Cortex agent sync: could not read athena.json, skipping");
-    return;
+    config = {};
+    logger.info("Cortex agent sync: creating athena.json");
   }
 
   // Ensure agents.list exists

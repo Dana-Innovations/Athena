@@ -310,11 +310,20 @@ export class CortexClient {
 
   /** Discover available tools for the current gateway/tenant. */
   async listTools(): Promise<CortexTool[]> {
-    const raw = await this.request<CortexTool[] | { tools: CortexTool[] }>("/api/v1/tools/schemas");
-    if (Array.isArray(raw)) return raw;
-    if (raw && typeof raw === "object" && "tools" in raw && Array.isArray(raw.tools))
-      return raw.tools;
-    return [];
+    const res = await this.request<{
+      tools: Array<{
+        name: string;
+        description: string;
+        input_schema?: { properties?: Record<string, unknown> };
+        requiresApproval?: boolean;
+      }>;
+    }>("/api/v1/tools/schemas");
+    return (res.tools ?? []).map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema?.properties ?? {},
+      requiresApproval: t.requiresApproval,
+    }));
   }
 
   /**

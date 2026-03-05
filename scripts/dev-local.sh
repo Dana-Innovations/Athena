@@ -157,7 +157,7 @@ cat > "$CONFIG_DIR/openclaw.json" <<EOCFG
     }
   },
   "gateway": {
-    "auth": { "mode": "none" }
+    "auth": { "mode": "cortex" }
   },
   "tools": { "alsoAllow": ["cortex_m365__*"] },
   "agents": {
@@ -281,9 +281,19 @@ pkill -9 -f "openclaw gateway" 2>/dev/null || true
 sleep 1
 
 export OPENCLAW_STATE_DIR="$CONFIG_DIR"
+export OPENCLAW_CONFIG_PATH="$CONFIG_DIR/openclaw.json"
 export ATHENA_PROFILE_DIR="$PROFILE_DIR"
 export OPENCLAW_GATEWAY_TOKEN="local-dev-$(date +%s)"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+export SONANCE_CORTEX_API_KEY="${SONANCE_CORTEX_API_KEY:-$CORTEX_API_KEY}"
+export SONANCE_CORTEX_API_URL="${SONANCE_CORTEX_API_URL:-http://localhost:$CORTEX_PORT}"
+export CORTEX_URL="${CORTEX_URL:-http://localhost:$CORTEX_PORT}"
+export AI_INTRANET_URL="${AI_INTRANET_URL:-}"
+export AI_INTRANET_APP_ID="${AI_INTRANET_APP_ID:-}"
+export AI_INTRANET_APP_API_KEY="${AI_INTRANET_APP_API_KEY:-}"
+export CORTEX_SUPABASE_URL="${CORTEX_SUPABASE_URL:-}"
+export CORTEX_SUPABASE_ANON_KEY="${CORTEX_SUPABASE_ANON_KEY:-}"
+export OPENCLAW_ALLOWED_ORIGINS="${OPENCLAW_ALLOWED_ORIGINS:-}"
 
 cd "$ROOT_DIR"
 exec pnpm openclaw gateway run --allow-unconfigured --bind loopback --port "$PORT"

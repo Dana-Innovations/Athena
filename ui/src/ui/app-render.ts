@@ -34,11 +34,6 @@ import {
   addCronJob,
   normalizeCronFormState,
 } from "./controllers/cron.ts";
-import {
-  forceRefreshDashboard,
-  refreshDashboardWidget,
-  type DashboardState,
-} from "./controllers/dashboard.ts";
 import { loadDebug, callDebugMethod } from "./controllers/debug.ts";
 import {
   approveDevicePairing,
@@ -94,7 +89,7 @@ import { renderChannels } from "./views/channels.ts";
 import { renderChat } from "./views/chat.ts";
 import { renderConfig } from "./views/config.ts";
 import { renderCron } from "./views/cron.ts";
-import { renderDashboard } from "./views/dashboard.ts";
+import { renderDashboardIdentity } from "./views/dashboard-identity.ts";
 import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
@@ -174,8 +169,8 @@ export function renderApp(state: AppViewState) {
               </div>
             </div>
             <div class="brand-text">
-              <div class="brand-title">SONANCECLAW</div>
-              <div class="brand-sub">Gateway Dashboard</div>
+              <div class="brand-title">ATHENA</div>
+              <div class="brand-sub">AI Identity</div>
             </div>
           </div>
         </div>
@@ -199,7 +194,9 @@ export function renderApp(state: AppViewState) {
         </div>
       </header>
       <aside class="nav ${state.settings.navCollapsed ? "nav--collapsed" : ""}">
-        ${TAB_GROUPS.map((group) => {
+        ${TAB_GROUPS.filter(
+          (group) => group.label !== "admin" || state.cortexUser?.role === "admin",
+        ).map((group) => {
           const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
           const hasActiveTab = group.tabs.some((tab) => tab === state.tab);
           return html`
@@ -220,9 +217,7 @@ export function renderApp(state: AppViewState) {
                 <span class="nav-label__chevron">${isGroupCollapsed ? "+" : "−"}</span>
               </button>
               <div class="nav-group__items">
-                ${group.tabs
-                  .filter((tab) => tab !== "admin" || state.cortexUser?.role === "admin")
-                  .map((tab) => renderTab(state, tab))}
+                ${group.tabs.map((tab) => renderTab(state, tab))}
               </div>
             </div>
           `;
@@ -246,23 +241,11 @@ export function renderApp(state: AppViewState) {
         </div>
       </aside>
       <main class="content ${isChat ? "content--chat" : ""}">
-        ${
-          state.updateAvailable
-            ? html`<div class="update-banner callout danger" role="alert">
-              <strong>Update available:</strong> v${state.updateAvailable.latestVersion}
-              (running v${state.updateAvailable.currentVersion}).
-              <button
-                class="btn btn--sm update-banner__btn"
-                ?disabled=${state.updateRunning || !state.connected}
-                @click=${() => runUpdate(state)}
-              >${state.updateRunning ? "Updating…" : "Update now"}</button>
-            </div>`
-            : nothing
-        }
+        ${nothing}
         <section class="content-header">
           <div>
-            ${state.tab === "usage" ? nothing : html`<div class="page-title">${titleForTab(state.tab)}</div>`}
-            ${state.tab === "usage" ? nothing : html`<div class="page-sub">${subtitleForTab(state.tab)}</div>`}
+            ${state.tab === "usage" || state.tab === "dashboard" ? nothing : html`<div class="page-title">${titleForTab(state.tab)}</div>`}
+            ${state.tab === "usage" || state.tab === "dashboard" ? nothing : html`<div class="page-sub">${subtitleForTab(state.tab)}</div>`}
           </div>
           <div class="page-meta">
             ${state.lastError ? html`<div class="pill danger">${state.lastError}</div>` : nothing}
@@ -272,20 +255,18 @@ export function renderApp(state: AppViewState) {
 
         ${
           state.tab === "dashboard"
-            ? renderDashboard({
-                loading: state.dashboardLoading,
-                error: state.dashboardError,
-                widgets: state.dashboardWidgets,
+            ? renderDashboardIdentity({
+                user: state.cortexUser ?? null,
                 connections: state.cortexConnections,
                 connectionsLoaded: state.cortexConnectionsLoaded,
-                lastRefreshAt: state.dashboardLastRefreshAt,
-                userName:
-                  state.cortexUser?.displayName ?? state.cortexUser?.email?.split("@")[0] ?? null,
-                onRefresh: () => {
-                  void forceRefreshDashboard(state as unknown as DashboardState);
+                dashboardStats: state.dashboardStats ?? null,
+                dashboardStatsLoading: state.dashboardStatsLoading,
+                connected: state.connected,
+                onLoadConnections: () => {
+                  void loadCortexConnections(state);
                 },
-                onRefreshWidget: (mcpName: string) => {
-                  void refreshDashboardWidget(state as unknown as DashboardState, mcpName);
+                onConnectMcp: (mcpName: string) => {
+                  void initiateOAuthConnect(state, mcpName);
                 },
               })
             : nothing
