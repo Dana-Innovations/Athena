@@ -30,7 +30,7 @@ export async function validatePlatform(opts: {
     dbPath = opts.dbPath ?? resolve(opts.rootDir, ".local-dev/athena.db");
     const provider = new AthenaSqliteProvider(dbPath);
     provider.initSchema();
-    dbStats = provider.getStats();
+    dbStats = provider.getTableStats();
     provider.close();
     dbInitialized = true;
   }

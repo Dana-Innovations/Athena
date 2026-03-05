@@ -255,6 +255,25 @@ export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "upstream-sync") {
     await loadUpstreamStatus(host as unknown as OpenClawApp);
   }
+  if (host.tab === "platform-overview") {
+    const { loadPlatformStats, loadPlatformMetrics } = await import("./controllers/platform.ts");
+    await loadPlatformStats(host as unknown as Parameters<typeof loadPlatformStats>[0]);
+    await loadPlatformMetrics(host as unknown as Parameters<typeof loadPlatformMetrics>[0]);
+  }
+  if (host.tab === "platform-conversations") {
+    const { loadPlatformConversations } = await import("./controllers/platform.ts");
+    await loadPlatformConversations(
+      host as unknown as Parameters<typeof loadPlatformConversations>[0],
+    );
+  }
+  if (host.tab === "platform-memory") {
+    const { loadPlatformMemory } = await import("./controllers/platform.ts");
+    await loadPlatformMemory(host as unknown as Parameters<typeof loadPlatformMemory>[0]);
+  }
+  if (host.tab === "platform-audit") {
+    const { loadPlatformAudit } = await import("./controllers/platform.ts");
+    await loadPlatformAudit(host as unknown as Parameters<typeof loadPlatformAudit>[0]);
+  }
   if (host.tab === "admin") {
     const { loadAdminData } = await import("./controllers/admin.ts");
     await loadAdminData(host as unknown as Parameters<typeof loadAdminData>[0]);

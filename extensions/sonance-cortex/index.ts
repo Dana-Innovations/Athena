@@ -1053,6 +1053,11 @@ function syncMcpAgent(
 // ---------------------------------------------------------------------------
 
 function registerLocalSonanceMethods(api: OpenClawPluginApi): void {
+  // -- Athena Platform Database Methods ------------------------------------
+  import("../../src/platform/gateway-methods.js")
+    .then(({ registerPlatformMethods }) => registerPlatformMethods(api))
+    .catch((err) => api.logger.warn(`[sonance-cortex] platform methods unavailable: ${err}`));
+
   // -- Tool & Plugin Whitelist Audit (dynamic runtime discovery) -----------
   api.registerGatewayMethod("sonance.tools.audit", async ({ respond }) => {
     try {

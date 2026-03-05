@@ -71,6 +71,18 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "talk.config",
     "agents.files.list",
     "agents.files.get",
+    "athena.platform.stats",
+    "athena.platform.table_stats",
+    "athena.platform.agent_stats",
+    "athena.platform.conversations",
+    "athena.platform.conversation",
+    "athena.platform.messages",
+    "athena.platform.messages.search",
+    "athena.platform.memory",
+    "athena.platform.metrics",
+    "athena.platform.audit",
+    "athena.platform.cron_jobs",
+    "athena.platform.cron_runs",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -112,6 +124,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "set-heartbeats",
     "system-event",
     "agents.files.set",
+    "athena.platform.memory.delete",
   ],
 };
 

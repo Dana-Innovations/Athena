@@ -9,7 +9,7 @@
  *   bun src/platform/cli.ts db:stats
  */
 import { resolve } from "node:path";
-import { AthenaSqliteProvider } from "./database/sqlite-provider.js";
+import { AthenaSqliteProvider } from "./database/index.js";
 import { loadAgentRegistry } from "./registry.js";
 import { validatePlatform, formatValidationReport, formatAgentList } from "./validate.js";
 
@@ -55,7 +55,7 @@ async function main() {
       console.log(`Initializing database at ${DB_PATH}...`);
       const provider = new AthenaSqliteProvider(DB_PATH);
       provider.initSchema();
-      const stats = provider.getStats();
+      const stats = provider.getTableStats();
       console.log("Database initialized. Tables:");
       for (const [table, count] of Object.entries(stats)) {
         console.log(`  ${table}: ${count} rows`);
@@ -68,7 +68,7 @@ async function main() {
     case "db:stats": {
       const provider = new AthenaSqliteProvider(DB_PATH);
       provider.initSchema();
-      const stats = provider.getStats();
+      const stats = provider.getTableStats();
       console.log("Database stats:");
       for (const [table, count] of Object.entries(stats)) {
         console.log(`  ${table}: ${count} rows`);

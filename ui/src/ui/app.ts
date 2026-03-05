@@ -373,6 +373,40 @@ export class OpenClawApp extends LitElement {
     {};
   @state() dashboardLastRefreshAt: number | null = null;
 
+  @state() platformStatsLoading = false;
+  @state() platformStatsError: string | null = null;
+  @state() platformStats: import("./controllers/platform.js").PlatformStats | null = null;
+  @state() platformAgentStats: import("./controllers/platform.js").AgentStatsEntry[] | null = null;
+  @state() platformConversationsLoading = false;
+  @state() platformConversationsError: string | null = null;
+  @state() platformConversations:
+    | import("./controllers/platform.js").PlatformConversation[]
+    | null = null;
+  @state() platformConversationsFilter: {
+    agentId?: string;
+    userId?: string;
+    gateway?: string;
+    search?: string;
+  } = {};
+  @state() platformSelectedConversation: string | null = null;
+  @state() platformMessages: import("./controllers/platform.js").PlatformMessage[] | null = null;
+  @state() platformMessagesLoading = false;
+  @state() platformMemoryLoading = false;
+  @state() platformMemoryError: string | null = null;
+  @state() platformMemory: import("./controllers/platform.js").PlatformMemoryEntry[] | null = null;
+  @state() platformMemoryFilter: {
+    agentId?: string;
+    userId?: string;
+    category?: string;
+    search?: string;
+  } = {};
+  @state() platformAuditLoading = false;
+  @state() platformAuditError: string | null = null;
+  @state() platformAudit: import("./controllers/platform.js").PlatformAuditEvent[] | null = null;
+  @state() platformAuditFilter: { agentId?: string; eventType?: string } = {};
+  @state() platformMetrics: import("./controllers/platform.js").PlatformMetric[] | null = null;
+  @state() platformMetricsLoading = false;
+
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];
   @state() cronStatus: CronStatus | null = null;

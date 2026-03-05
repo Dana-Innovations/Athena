@@ -50,6 +50,17 @@ import {
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
+import {
+  loadPlatformStats,
+  loadPlatformConversations,
+  loadConversationMessages,
+  searchPlatformMessages,
+  loadPlatformMemory,
+  deletePlatformMemory,
+  loadPlatformAudit,
+  loadPlatformMetrics,
+  type PlatformState,
+} from "./controllers/platform.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
@@ -81,7 +92,7 @@ import {
   reviewAllUpdates,
 } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
-import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab } from "./navigation.ts";
+import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab, type Tab } from "./navigation.ts";
 import { renderAdmin } from "./views/admin.ts";
 import { renderAgents } from "./views/agents.ts";
 import { renderApollo } from "./views/apollo.ts";
@@ -99,6 +110,10 @@ import { renderLanding } from "./views/landing.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
+import { renderPlatformAudit } from "./views/platform-audit.ts";
+import { renderConversationBrowser } from "./views/platform-conversations.ts";
+import { renderPlatformDashboard } from "./views/platform-dashboard.ts";
+import { renderMemoryBrowser } from "./views/platform-memory.ts";
 import { renderSessions } from "./views/sessions.ts";
 import { renderSkills } from "./views/skills.ts";
 import { renderWhitelist } from "./views/tool-whitelist.ts";
@@ -618,6 +633,88 @@ export function renderApp(state: AppViewState) {
                   state.upstreamApplyResult = null;
                 },
                 onFullReview: () => void reviewAllUpdates(state),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-overview"
+            ? renderPlatformDashboard({
+                loading: state.platformStatsLoading,
+                error: state.platformStatsError,
+                stats: state.platformStats,
+                agentStats: state.platformAgentStats,
+                metrics: state.platformMetrics,
+                onRefresh: () => {
+                  void loadPlatformStats(state as unknown as PlatformState);
+                  void loadPlatformMetrics(state as unknown as PlatformState);
+                },
+                onNavigate: (tab) => state.setTab(tab as Tab),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-conversations"
+            ? renderConversationBrowser({
+                loading: state.platformConversationsLoading,
+                error: state.platformConversationsError,
+                conversations: state.platformConversations,
+                selectedConversationId: state.platformSelectedConversation,
+                messages: state.platformMessages,
+                messagesLoading: state.platformMessagesLoading,
+                filter: state.platformConversationsFilter,
+                onFilterChange: (f) => {
+                  state.platformConversationsFilter = {
+                    ...state.platformConversationsFilter,
+                    ...f,
+                  };
+                  void loadPlatformConversations(state as unknown as PlatformState);
+                },
+                onSelectConversation: (id) => {
+                  void loadConversationMessages(state as unknown as PlatformState, id);
+                },
+                onSearch: (query) => {
+                  void searchPlatformMessages(state as unknown as PlatformState, query);
+                },
+                onRefresh: () => void loadPlatformConversations(state as unknown as PlatformState),
+                onBack: () => {
+                  state.platformSelectedConversation = null;
+                  state.platformMessages = null;
+                },
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-memory"
+            ? renderMemoryBrowser({
+                loading: state.platformMemoryLoading,
+                error: state.platformMemoryError,
+                entries: state.platformMemory,
+                filter: state.platformMemoryFilter,
+                onFilterChange: (f) => {
+                  state.platformMemoryFilter = { ...state.platformMemoryFilter, ...f };
+                  void loadPlatformMemory(state as unknown as PlatformState);
+                },
+                onRefresh: () => void loadPlatformMemory(state as unknown as PlatformState),
+                onDelete: (id) => void deletePlatformMemory(state as unknown as PlatformState, id),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-audit"
+            ? renderPlatformAudit({
+                loading: state.platformAuditLoading,
+                error: state.platformAuditError,
+                events: state.platformAudit,
+                filter: state.platformAuditFilter,
+                onFilterChange: (f) => {
+                  state.platformAuditFilter = { ...state.platformAuditFilter, ...f };
+                  void loadPlatformAudit(state as unknown as PlatformState);
+                },
+                onRefresh: () => void loadPlatformAudit(state as unknown as PlatformState),
               })
             : nothing
         }

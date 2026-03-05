@@ -18,6 +18,10 @@ export const TAB_GROUPS_LEGACY = [
     tabs: ["overview", "channels", "instances", "sessions", "usage", "cron"],
   },
   { label: "agent", tabs: ["agents", "skills", "nodes"] },
+  {
+    label: "platform",
+    tabs: ["platform-overview", "platform-conversations", "platform-memory", "platform-audit"],
+  },
   { label: "sonance", tabs: ["apollo", "admin", "whitelist", "upstream-sync"] },
   { label: "settings", tabs: ["config", "debug", "logs"] },
 ] as const;
@@ -33,6 +37,10 @@ export type Tab =
   | "cron"
   | "skills"
   | "nodes"
+  | "platform-overview"
+  | "platform-conversations"
+  | "platform-memory"
+  | "platform-audit"
   | "apollo"
   | "whitelist"
   | "upstream-sync"
@@ -53,6 +61,10 @@ const TAB_PATHS: Record<Tab, string> = {
   cron: "/cron",
   skills: "/skills",
   nodes: "/nodes",
+  "platform-overview": "/platform",
+  "platform-conversations": "/platform/conversations",
+  "platform-memory": "/platform/memory",
+  "platform-audit": "/platform/audit",
   apollo: "/apollo",
   whitelist: "/whitelist",
   "upstream-sync": "/upstream-sync",
@@ -168,6 +180,14 @@ export function iconForTab(tab: Tab): IconName {
       return "zap";
     case "nodes":
       return "monitor";
+    case "platform-overview":
+      return "barChart";
+    case "platform-conversations":
+      return "messageSquare";
+    case "platform-memory":
+      return "fileText";
+    case "platform-audit":
+      return "shield";
     case "apollo":
       return "barChart";
     case "whitelist":
