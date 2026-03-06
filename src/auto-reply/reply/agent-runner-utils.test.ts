@@ -145,6 +145,7 @@ describe("agent-runner-utils", () => {
     expect(resolved.senderContext).toEqual({
       senderId: "sender-1",
       senderName: undefined,
+      senderEmail: undefined,
       senderUsername: undefined,
       senderE164: undefined,
     });

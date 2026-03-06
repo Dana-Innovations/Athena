@@ -18,6 +18,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export type PluginUserContext = {
   senderId?: string;
   senderName?: string;
+  senderEmail?: string;
 };
 
 const GLOBAL_KEY = "__openclaw_plugin_user_store__";

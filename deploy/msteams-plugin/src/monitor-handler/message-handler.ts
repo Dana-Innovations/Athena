@@ -27,10 +27,7 @@ function resolveDefaultGroupPolicy(cfg: unknown): string | undefined {
   }
   return undefined;
 }
-import {
-  resolveAgentFromMessage,
-  handleAgentsListCommand,
-} from "../../../../src/platform/router.js";
+import { handleAgentsListCommand } from "../../../../src/platform/router.js";
 import {
   buildMSTeamsAttachmentPlaceholder,
   buildMSTeamsMediaPayload,
@@ -40,6 +37,7 @@ import {
 import { handleChatCommandWithConnect } from "../chat-commands.js";
 import type { StoredConversationReference } from "../conversation-store.js";
 import { formatUnknownError } from "../errors.js";
+import { fetchGraphJson, resolveGraphToken, type GraphUser } from "../graph.js";
 import {
   extractMSTeamsConversationMessageId,
   normalizeMSTeamsConversationId,
@@ -68,6 +66,90 @@ import { getMSTeamsRuntime } from "../runtime.js";
 import type { MSTeamsTurnContext } from "../sdk-types.js";
 import { recordMSTeamsSentMessage, wasMSTeamsMessageSent } from "../sent-message-cache.js";
 import { resolveMSTeamsInboundMedia } from "./inbound-media.js";
+
+/**
+ * Cached AAD object ID → email resolver.
+ * Primary: Bot Connector API (getConversationMember) — uses the bot's
+ * existing messaging credentials, no Graph permissions needed.
+ * Fallback: Graph API (/users/{id}) — requires User.Read.All app permission.
+ */
+const aadEmailCache = new Map<string, string>();
+const aadEmailPending = new Map<string, Promise<string | null>>();
+
+type ConnectorLike = {
+  getConversationMember?: (
+    userId: string,
+    conversationId: string,
+  ) => Promise<Record<string, unknown>>;
+};
+
+type TurnContextLike = {
+  turnState?: { get: (key: unknown) => unknown };
+  adapter?: { ConnectorClientKey?: unknown };
+};
+
+async function resolveAadEmail(params: {
+  aadObjectId: string;
+  memberId: string;
+  conversationId: string;
+  context: unknown;
+  cfg: unknown;
+}): Promise<string | null> {
+  const { aadObjectId, memberId, conversationId, context, cfg } = params;
+  const cached = aadEmailCache.get(aadObjectId);
+  if (cached) return cached;
+
+  const inflight = aadEmailPending.get(aadObjectId);
+  if (inflight) return inflight;
+
+  const promise = (async (): Promise<string | null> => {
+    try {
+      // Primary: Bot Connector API — no Graph permissions needed.
+      const ctx = context as TurnContextLike | undefined;
+      const connectorKey = ctx?.adapter?.ConnectorClientKey;
+      const connector = connectorKey
+        ? (ctx!.turnState?.get(connectorKey) as ConnectorLike | undefined)
+        : undefined;
+
+      if (connector?.getConversationMember) {
+        const member = await connector.getConversationMember(memberId, conversationId);
+        const email =
+          (member.email as string | undefined)?.trim() ||
+          (member.userPrincipalName as string | undefined)?.trim() ||
+          null;
+        if (email) {
+          aadEmailCache.set(aadObjectId, email);
+          console.log(`[msteams] resolveAadEmail via connector: ${aadObjectId} → ${email}`);
+          return email;
+        }
+        console.warn(`[msteams] resolveAadEmail: connector returned no email for ${aadObjectId}`);
+      }
+
+      // Fallback: Graph API (requires User.Read.All app permission).
+      const token = await resolveGraphToken(cfg);
+      const user = await fetchGraphJson<GraphUser>({
+        token,
+        path: `/users/${encodeURIComponent(aadObjectId)}?$select=mail,userPrincipalName`,
+      });
+      const email = user.userPrincipalName?.trim() || user.mail?.trim() || null;
+      if (email) {
+        aadEmailCache.set(aadObjectId, email);
+        console.log(`[msteams] resolveAadEmail via Graph: ${aadObjectId} → ${email}`);
+      } else {
+        console.warn(`[msteams] resolveAadEmail: no email found for ${aadObjectId}`);
+      }
+      return email;
+    } catch (err) {
+      console.warn(`[msteams] resolveAadEmail failed for ${aadObjectId}: ${String(err)}`);
+      return null;
+    } finally {
+      aadEmailPending.delete(aadObjectId);
+    }
+  })();
+
+  aadEmailPending.set(aadObjectId, promise);
+  return promise;
+}
 
 export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
   const {
@@ -155,6 +237,19 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
 
     const senderName = from.name ?? from.id;
     const senderId = from.aadObjectId ?? from.id;
+
+    // Resolve AAD → email for per-user Cortex token isolation.
+    // Uses Bot Connector API (getConversationMember) — no Graph permissions needed.
+    const senderEmail = from.aadObjectId
+      ? await resolveAadEmail({
+          aadObjectId: from.aadObjectId,
+          memberId: from.id,
+          conversationId: rawConversationId,
+          context,
+          cfg,
+        }).catch(() => null)
+      : null;
+
     const dmPolicy = msteamsCfg?.dmPolicy ?? "pairing";
     const storedAllowFrom =
       dmPolicy === "allowlist"
@@ -394,27 +489,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       return;
     }
 
-    let platformRouteOverride: { agentId: string; strippedBody: string } | null = null;
-    try {
-      const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
-      const platformRoute = resolveAgentFromMessage(rawBody, senderId, registryRoot);
-      if (platformRoute) {
-        platformRouteOverride = {
-          agentId: platformRoute.agentId,
-          strippedBody: platformRoute.strippedBody,
-        };
-        if (platformRoute.matchedBy !== "default") {
-          log.info("platform router matched", {
-            agentId: platformRoute.agentId,
-            matchedBy: platformRoute.matchedBy,
-          });
-        }
-      }
-    } catch (routeErr) {
-      log.debug?.("platform route resolution failed, falling through", {
-        error: String(routeErr),
-      });
-    }
     // --- End platform agent routing ---
 
     const cmdResult = await handleChatCommandWithConnect(rawBody, senderId);
@@ -472,7 +546,7 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
         : `msteams:group:${conversationId}`;
     const teamsTo = isDirectMessage ? `user:${senderId}` : `conversation:${conversationId}`;
 
-    let route = core.channel.routing.resolveAgentRoute({
+    const route = core.channel.routing.resolveAgentRoute({
       cfg: perUserCfg,
       channel: "msteams",
       peer: {
@@ -480,35 +554,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
         id: isDirectMessage ? senderId : conversationId,
       },
     });
-
-    // Platform router override: if the message targeted a specific agent, re-resolve
-    // the route with that agent's ID so the session key and dispatch align.
-    if (platformRouteOverride) {
-      rawBody = platformRouteOverride.strippedBody;
-      const agentList = perUserCfg.agents?.list ?? [];
-      const targetAgent = agentList.find(
-        (a: { id: string }) => a.id === platformRouteOverride!.agentId,
-      );
-      if (targetAgent) {
-        route = core.channel.routing.resolveAgentRoute({
-          cfg: {
-            ...perUserCfg,
-            bindings: [
-              {
-                agentId: platformRouteOverride.agentId,
-                match: { channel: "msteams" },
-              },
-              ...(perUserCfg.bindings ?? []),
-            ],
-          },
-          channel: "msteams",
-          peer: {
-            kind: isDirectMessage ? "direct" : isChannel ? "channel" : "group",
-            id: isDirectMessage ? senderId : conversationId,
-          },
-        });
-      }
-    }
 
     const preview = rawBody.replace(/\s+/g, " ").slice(0, 160);
     const inboundLabel = isDirectMessage
@@ -642,6 +687,7 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       GroupSubject: !isDirectMessage ? conversationType : undefined,
       SenderName: senderName,
       SenderId: senderId,
+      SenderEmail: senderEmail ?? undefined,
       Provider: "msteams" as const,
       Surface: "msteams" as const,
       MessageSid: activity.id,

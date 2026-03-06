@@ -40,6 +40,7 @@ export type RunEmbeddedPiAgentParams = {
   spawnedBy?: string | null;
   senderId?: string | null;
   senderName?: string | null;
+  senderEmail?: string | null;
   senderUsername?: string | null;
   senderE164?: string | null;
   /** Whether the sender is an owner (required for owner-only tools). */

@@ -165,28 +165,13 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
           ...cortexEntry,
           enabled: cortexEntry.enabled ?? true,
         },
-        "cortex-tools": (() => {
-          const ctEntry = (entries["cortex-tools"] ?? {}) as Record<string, unknown>;
-          const ctConfig = (ctEntry.config ?? {}) as Record<string, unknown>;
-          // Auto-derive url/apiKey from sonance-cortex config or env vars (same Cortex backend)
-          const url =
-            (typeof ctConfig.url === "string" && ctConfig.url.trim()) ||
-            (typeof cortexConfig.apiBaseUrl === "string" && cortexConfig.apiBaseUrl.trim()) ||
-            process.env.SONANCE_CORTEX_API_URL?.trim() ||
-            process.env.CORTEX_URL?.trim() ||
-            undefined;
-          const apiKey =
-            (typeof ctConfig.apiKey === "string" && ctConfig.apiKey.trim()) ||
-            (typeof cortexConfig.apiKey === "string" && cortexConfig.apiKey.trim()) ||
-            process.env.SONANCE_CORTEX_API_KEY?.trim() ||
-            process.env.CORTEX_API_KEY?.trim() ||
-            undefined;
-          return {
-            ...ctEntry,
-            enabled: ctEntry.enabled ?? true,
-            config: { ...ctConfig, ...(url ? { url } : {}), ...(apiKey ? { apiKey } : {}) },
-          };
-        })(),
+        // cortex-tools is superseded by sonance-cortex (which uses the MCP bridge
+        // with per-user OAuth via token exchange). Keeping cortex-tools enabled
+        // causes tool name conflicts and routes tool calls through HERMES (no OAuth).
+        "cortex-tools": {
+          ...(entries["cortex-tools"] as Record<string, unknown> | undefined),
+          enabled: false,
+        },
       },
     },
   };

@@ -194,6 +194,7 @@ export async function runEmbeddedPiAgent(
   const userCtx = {
     senderId: params.senderId?.trim() || undefined,
     senderName: params.senderName?.trim() || undefined,
+    senderEmail: params.senderEmail?.trim() || undefined,
   };
 
   return enqueueSession(() =>

@@ -230,7 +230,10 @@ const cortexPlugin = {
       client
         .listTools()
         .then((tools) => {
+          let registered = 0;
           for (const tool of tools) {
+            if (_registeredBridgeToolNames.has(tool.name)) continue;
+
             api.registerTool({
               name: tool.name,
               label: tool.name,
@@ -263,9 +266,13 @@ const cortexPlugin = {
                 return wrapTextResult(text);
               },
             });
+            _registeredBridgeToolNames.add(tool.name);
+            registered++;
             api.logger.info(`[sonance-cortex] registered tool: ${tool.name}`);
           }
-          api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from Cortex`);
+          api.logger.info(
+            `[sonance-cortex] loaded ${registered}/${tools.length} tool(s) from Cortex`,
+          );
         })
         .catch((err) => {
           api.logger.warn(`[sonance-cortex] failed to load tools: ${String(err)}`);
@@ -606,6 +613,16 @@ function resolveProviderEnvKey(provider: string): { apiKey: string; source: stri
 // MCP bridge helpers
 // ---------------------------------------------------------------------------
 
+// Process-level guards: survive plugin re-loads triggered by the config watcher.
+// The plugin module is re-evaluated on each reload (via jiti), so module-level
+// state is lost. globalThis state persists across re-imports within the same process.
+const _G = globalThis as unknown as {
+  __sonanceCortexRegisteredTools?: Set<string>;
+  __sonanceCortexSyncedAgents?: Set<string>;
+};
+const _registeredBridgeToolNames = (_G.__sonanceCortexRegisteredTools ??= new Set<string>());
+const _syncedMcpAgents = (_G.__sonanceCortexSyncedAgents ??= new Set<string>());
+
 function wrapTextResult(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
 }
@@ -616,8 +633,12 @@ function registerMcpTools(
   tools: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>,
   callFn: (toolName: string, params: Record<string, unknown>) => Promise<string>,
 ): void {
+  let registered = 0;
   for (const tool of tools) {
     const toolName = "cortex_" + mcpName + "__" + tool.name;
+
+    if (_registeredBridgeToolNames.has(toolName)) continue;
+
     const inputProps = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
 
     api.registerTool({
@@ -637,10 +658,18 @@ function registerMcpTools(
         return wrapTextResult(text);
       },
     });
+    _registeredBridgeToolNames.add(toolName);
+    registered++;
     api.logger.info("[sonance-cortex] registered MCP tool: " + toolName);
   }
   api.logger.info(
-    "[sonance-cortex] loaded " + tools.length + " tool(s) from MCP '" + mcpName + "'",
+    "[sonance-cortex] loaded " +
+      registered +
+      "/" +
+      tools.length +
+      " tool(s) from MCP '" +
+      mcpName +
+      "'",
   );
 
   syncMcpAgent(api.logger, mcpName, tools);
@@ -707,6 +736,53 @@ function bridgeStdioMcp(
 }
 
 /**
+ * Lightweight per-user token manager for the MCP bridge.
+ * Exchanges the shared service API key + user email for a short-lived
+ * per-user key via Cortex's token exchange endpoint. This ensures
+ * resolve_mcp_token() resolves the correct user's OAuth tokens.
+ */
+class BridgeTokenManager {
+  private readonly cache = new Map<string, { apiKey: string; expiresAt: number }>();
+  private readonly pending = new Map<string, Promise<string>>();
+  private readonly cortexUrl: string;
+  private readonly serviceApiKey: string;
+
+  constructor(cortexUrl: string, serviceApiKey: string) {
+    this.cortexUrl = cortexUrl.replace(/\/+$/, "");
+    this.serviceApiKey = serviceApiKey;
+  }
+
+  async getKeyForUser(email: string): Promise<string> {
+    const key = email.trim().toLowerCase();
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt - 5 * 60_000 > Date.now()) return cached.apiKey;
+
+    const inflight = this.pending.get(key);
+    if (inflight) return inflight;
+
+    const promise = (async (): Promise<string> => {
+      const res = await fetch(`${this.cortexUrl}/api/v1/auth/token-exchange`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": this.serviceApiKey },
+        body: JSON.stringify({ email: key }),
+      });
+      if (!res.ok) throw new Error(`Token exchange failed (${res.status})`);
+      const data = (await res.json()) as { api_key: string; expires_in: number };
+      const entry = { apiKey: data.api_key, expiresAt: Date.now() + data.expires_in * 1000 };
+      this.cache.set(key, entry);
+      return entry.apiKey;
+    })();
+
+    this.pending.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      this.pending.delete(key);
+    }
+  }
+}
+
+/**
  * Bridge the Cortex CompositeMCPBridge — a single JSON-RPC 2.0 endpoint that
  * aggregates all registered MCPs (GitHub, Supabase, Vercel, etc.) with
  * namespace-prefixed tool names (e.g. `github__list_repositories`).
@@ -715,21 +791,22 @@ function bridgeStdioMcp(
  * this sends all JSON-RPC calls to the same URL.
  */
 function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: string): void {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-API-Key": apiKey,
-  };
+  // Per-user token manager: exchanges service key + email for user-scoped API keys
+  // so Cortex resolve_mcp_token() returns the correct user's OAuth tokens.
+  const cortexBaseUrl = bridgeUrl.replace(/\/mcp\/cortex\/?$/, "");
+  const tokenManager = new BridgeTokenManager(cortexBaseUrl, apiKey);
 
-  const rpc = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
-    const reqHeaders: Record<string, string> = { ...headers };
-    const userCtx = pluginUserStore.getStore();
-    if (userCtx?.senderId) {
-      reqHeaders["X-Cortex-User-Id"] = userCtx.senderId;
-      api.logger.info?.(`[user-ctx] cortex rpc(${method}) delegating to user ${userCtx.senderId}`);
-    }
+  const rpc = async (
+    method: string,
+    params: Record<string, unknown> = {},
+    apiKeyOverride?: string,
+  ): Promise<unknown> => {
     const res = await fetch(bridgeUrl, {
       method: "POST",
-      headers: reqHeaders,
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": apiKeyOverride ?? apiKey,
+      },
       body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
     });
     if (!res.ok) {
@@ -746,25 +823,54 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
     return body.result;
   };
 
-  // Helper: register bridge tools from a tool list (used by both cache and live paths)
+  // Helper: register bridge tools from a tool list (used by both cache and live paths).
+  // Uses the module-level _registeredBridgeToolNames guard to survive plugin
+  // re-loads triggered by the config watcher without causing name conflicts.
   type BridgeTool = { name: string; description?: string; inputSchema?: Record<string, unknown> };
   const registerBridgeTools = (tools: BridgeTool[]) => {
+    let registered = 0;
     for (const tool of tools) {
+      const prefixedName = "cortex_" + tool.name;
+
+      if (_registeredBridgeToolNames.has(prefixedName)) continue;
+
       const schema = tool.inputSchema
         ? jsonSchemaToTypeBox(tool.inputSchema as Parameters<typeof jsonSchemaToTypeBox>[0])
         : Type.Object({});
 
-      const prefixedName = "cortex_" + tool.name;
       api.registerTool({
         name: prefixedName,
         label: prefixedName,
         description: `[cortex-mcp] ${tool.description ?? tool.name}`,
         parameters: schema,
         async execute(_toolCallId, params) {
-          const callResult = await rpc("tools/call", {
-            name: tool.name,
-            arguments: params as Record<string, unknown>,
-          });
+          let userApiKey: string | undefined;
+          const userCtx = pluginUserStore.getStore();
+          api.logger.info(
+            `[sonance-cortex] bridge tool ${prefixedName}: userCtx=${JSON.stringify({ senderId: userCtx?.senderId, senderEmail: userCtx?.senderEmail, senderName: userCtx?.senderName })}`,
+          );
+          if (userCtx?.senderEmail) {
+            try {
+              userApiKey = await tokenManager.getKeyForUser(userCtx.senderEmail);
+              api.logger.info(
+                `[sonance-cortex] token exchange OK for ${userCtx.senderEmail} → key=${userApiKey?.slice(0, 12)}...`,
+              );
+            } catch (err) {
+              api.logger.warn(
+                `[sonance-cortex] token exchange FAILED for ${userCtx.senderEmail}: ${String(err)}`,
+              );
+            }
+          } else {
+            api.logger.warn(
+              `[sonance-cortex] NO senderEmail — using shared service key (CROSS-USER RISK)`,
+            );
+          }
+
+          const callResult = await rpc(
+            "tools/call",
+            { name: tool.name, arguments: params as Record<string, unknown> },
+            userApiKey,
+          );
           const content = (callResult as { content?: Array<{ type: string; text?: string }> })
             ?.content;
           const text = content
@@ -774,8 +880,11 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
           return wrapTextResult(text || JSON.stringify(callResult ?? {}));
         },
       });
+      _registeredBridgeToolNames.add(prefixedName);
+      registered++;
       api.logger.info(`[sonance-cortex] registered bridge tool: ${prefixedName}`);
     }
+    return registered;
   };
 
   const syncBridgeAgents = (tools: BridgeTool[]) => {
@@ -899,10 +1008,7 @@ function bridgeHttpMcp(api: OpenClawPluginApi, mcp: McpServerEntry): void {
     .then((tools) => {
       registerMcpTools(api, mcp.name, tools, async (toolName, params) => {
         const callHeaders: Record<string, string> = { ...mcpHeaders };
-        const userCtx = pluginUserStore.getStore();
-        if (userCtx?.senderId) {
-          callHeaders["X-Cortex-User-Id"] = userCtx.senderId;
-        }
+        // Same as bridge: API key identifies the user; don't send channel sender IDs.
         const callRes = await fetch(baseUrl + "/tools/call", {
           method: "POST",
           headers: callHeaders,
@@ -949,6 +1055,9 @@ function syncMcpAgent(
   mcpName: string,
   tools: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>,
 ): void {
+  if (_syncedMcpAgents.has(mcpName)) return;
+  _syncedMcpAgents.add(mcpName);
+
   // Dynamic imports so this doesn't break if fs/os/path aren't bundled
   // in some future browser-only context.
   try {
