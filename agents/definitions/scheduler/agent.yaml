@@ -10,6 +10,8 @@ metadata:
   owner: josh@sonance.com
 
 spec:
+  role: specialist
+
   runtime:
     framework: openclaw
     model:
@@ -34,46 +36,13 @@ spec:
     cortex:
       mcps: ["m365"]
       tools:
-        allow: ["cortex_m365__list_events", "cortex_m365__create_event", "cortex_m365__get_schedule", "cortex_m365__search_people", "cortex_m365__get_presence", "cortex_m365__get_profile"]
-
-  routing:
-    intentKeywords:
-      - "schedule"
-      - "meeting"
-      - "calendar"
-      - "book a"
-      - "free slot"
-      - "availability"
-      - "available"
-      - "busy"
-      - "conflict"
-      - "reschedule"
-      - "cancel meeting"
-      - "move my meeting"
-      - "when am i free"
-      - "when is"
-      - "find time"
-      - "set up a meeting"
-      - "block time"
-      - "focus time"
-      - "daily briefing"
-      - "weekly summary"
-      - "what's on my calendar"
-      - "what do i have today"
-      - "what do i have tomorrow"
-      - "what's my day look like"
-      - "next meeting"
-    priority: 10
-
-  gateways:
-    teams:
-      enabled: true
-      appId: "78bdfd6c-d857-4c2b-b9ea-7ce57befe693"
-      dmPolicy: disabled
-      groupPolicy: mention
-    api:
-      enabled: true
-      rateLimit: "200/min"
+        allow:
+          - "cortex_m365__list_events"
+          - "cortex_m365__create_event"
+          - "cortex_m365__get_schedule"
+          - "cortex_m365__search_people"
+          - "cortex_m365__get_presence"
+          - "cortex_m365__get_profile"
 
   cron:
     - name: daily-briefing

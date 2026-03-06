@@ -86,6 +86,29 @@ export type PlatformMetric = {
   uniqueUsers: number;
 };
 
+export type PlatformAgent = {
+  id: string;
+  displayName: string;
+  description: string;
+  avatar: string | null;
+  aliases: string[];
+  team: string | null;
+  owner: string | null;
+  role: "orchestrator" | "specialist";
+  model: { primary: string; fallback?: string };
+  compaction: { mode: string } | null;
+  gateways: Record<string, { enabled?: boolean }>;
+  skills: Record<string, unknown>;
+  subagents: { allowAgents: string[]; maxSpawnDepth: number; maxConcurrent: number } | null;
+  cron: Array<{ name: string; schedule: string; action: string; targets?: string }>;
+  access: Record<string, unknown>;
+  collaboration: Record<string, unknown>;
+  routing: Record<string, unknown>;
+  soulContent: string | null;
+  soulPath: string | null;
+  definitionPath: string;
+};
+
 export type PlatformState = {
   platformStatsLoading: boolean;
   platformStatsError: string | null;
@@ -125,6 +148,14 @@ export type PlatformState = {
 
   platformMetrics: PlatformMetric[] | null;
   platformMetricsLoading: boolean;
+
+  platformAgents: PlatformAgent[] | null;
+  platformAgentsLoading: boolean;
+  platformAgentsError: string | null;
+  platformSelectedAgentId: string | null;
+  platformSoulEditing: boolean;
+  platformSoulDraft: string | null;
+  platformSoulSaving: boolean;
 
   client: {
     request: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
@@ -282,6 +313,85 @@ export async function loadPlatformMetrics(state: PlatformState): Promise<void> {
     state.platformMetrics = null;
   } finally {
     state.platformMetricsLoading = false;
+  }
+}
+
+// -- Agents -----------------------------------------------------------------
+
+export async function loadPlatformAgents(state: PlatformState): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  state.platformAgentsLoading = true;
+  state.platformAgentsError = null;
+  try {
+    const res = await state.client.request<{ agents: PlatformAgent[] }>("athena.platform.agents");
+    state.platformAgents = res.agents;
+  } catch (err) {
+    state.platformAgentsError = `Failed to load agents: ${String(err)}`;
+  } finally {
+    state.platformAgentsLoading = false;
+  }
+}
+
+export async function updateAgentSoul(
+  state: PlatformState,
+  agentId: string,
+  content: string,
+): Promise<boolean> {
+  if (!state.client) {
+    return false;
+  }
+  state.platformSoulSaving = true;
+  try {
+    await state.client.request("athena.platform.agent.soul.update", { agentId, content });
+    if (state.platformAgents) {
+      const agent = state.platformAgents.find((a) => a.id === agentId);
+      if (agent) {
+        agent.soulContent = content;
+      }
+    }
+    state.platformSoulDraft = null;
+    state.platformSoulEditing = false;
+    return true;
+  } catch {
+    return false;
+  } finally {
+    state.platformSoulSaving = false;
+  }
+}
+
+export async function updateAgentConfig(
+  state: PlatformState,
+  agentId: string,
+  updates: {
+    role?: "orchestrator" | "specialist";
+    model?: { primary: string; fallback?: string };
+    allowAgents?: string[];
+  },
+): Promise<boolean> {
+  if (!state.client) {
+    return false;
+  }
+  try {
+    await state.client.request("athena.platform.agent.config.update", { agentId, ...updates });
+    if (state.platformAgents) {
+      const agent = state.platformAgents.find((a) => a.id === agentId);
+      if (agent) {
+        if (updates.role) {
+          agent.role = updates.role;
+        }
+        if (updates.model) {
+          agent.model = updates.model;
+        }
+        if (updates.allowAgents && agent.subagents) {
+          agent.subagents.allowAgents = updates.allowAgents;
+        }
+      }
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 

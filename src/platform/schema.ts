@@ -117,13 +117,26 @@ const AccessSchema = z.object({
   users: z.array(z.string()).default(["*@sonance.com"]),
 });
 
+const SubagentsSchema = z.object({
+  /** Agent IDs this agent is allowed to spawn. Use ["*"] for any. */
+  allowAgents: z.array(z.string()).default([]),
+  /** Maximum depth of spawn chains originating from this agent. */
+  maxSpawnDepth: z.number().int().min(0).max(5).default(2),
+  /** Maximum concurrent sub-agent runs. */
+  maxConcurrent: z.number().int().min(1).max(20).default(5),
+});
+
 const SpecSchema = z.object({
+  /** Agent role: orchestrator (user-facing) or specialist (internal, spawned only). */
+  role: z.enum(["orchestrator", "specialist"]).default("specialist"),
   runtime: RuntimeSchema,
   identity: IdentitySchema.optional(),
   persistence: PersistenceSchema.optional(),
   skills: SkillsSchema.optional(),
   gateways: GatewaysSchema.optional(),
   routing: RoutingSchema.optional(),
+  /** Sub-agent spawning config (only relevant for orchestrators). */
+  subagents: SubagentsSchema.optional(),
   cron: z.array(CronEntrySchema).optional(),
   collaboration: CollaborationSchema.optional(),
   access: AccessSchema,
@@ -147,6 +160,7 @@ export type AgentGateways = z.infer<typeof GatewaysSchema>;
 export type AgentAccess = z.infer<typeof AccessSchema>;
 export type AgentRouting = z.infer<typeof RoutingSchema>;
 export type AgentCollaboration = z.infer<typeof CollaborationSchema>;
+export type AgentSubagents = z.infer<typeof SubagentsSchema>;
 export type CronEntry = z.infer<typeof CronEntrySchema>;
 
 // ── Validation helpers ───────────────────────────────────────────

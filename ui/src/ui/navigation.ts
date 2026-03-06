@@ -7,7 +7,13 @@ export const TAB_GROUPS = [
   { label: "cortex", tabs: ["usage"] },
   {
     label: "platform",
-    tabs: ["platform-overview", "platform-conversations", "platform-memory", "platform-audit"],
+    tabs: [
+      "platform-overview",
+      "platform-agents",
+      "platform-conversations",
+      "platform-memory",
+      "platform-audit",
+    ],
   },
   { label: "settings", tabs: ["config"] },
   { label: "admin", tabs: ["admin"] },
@@ -42,6 +48,7 @@ export type Tab =
   | "skills"
   | "nodes"
   | "platform-overview"
+  | "platform-agents"
   | "platform-conversations"
   | "platform-memory"
   | "platform-audit"
@@ -66,6 +73,7 @@ const TAB_PATHS: Record<Tab, string> = {
   skills: "/skills",
   nodes: "/nodes",
   "platform-overview": "/platform",
+  "platform-agents": "/platform/agents",
   "platform-conversations": "/platform/conversations",
   "platform-memory": "/platform/memory",
   "platform-audit": "/platform/audit",
@@ -186,6 +194,8 @@ export function iconForTab(tab: Tab): IconName {
       return "monitor";
     case "platform-overview":
       return "barChart";
+    case "platform-agents":
+      return "folder";
     case "platform-conversations":
       return "messageSquare";
     case "platform-memory":

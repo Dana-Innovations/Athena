@@ -10,6 +10,8 @@ metadata:
   owner: josh@sonance.com
 
 spec:
+  role: orchestrator
+
   runtime:
     framework: openclaw
     model:
@@ -36,6 +38,11 @@ spec:
       tools:
         allow: ["cortex_m365__*"]
         deny: ["cortex_m365__delete_*"]
+
+  subagents:
+    allowAgents: ["scheduler"]
+    maxSpawnDepth: 2
+    maxConcurrent: 5
 
   routing:
     isDefault: true

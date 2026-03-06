@@ -23,6 +23,9 @@ export type AgentConfigFragment = {
     alsoAllow?: string[];
     deny?: string[];
   };
+  subagents?: {
+    allowAgents?: string[];
+  };
 };
 
 export type PlatformConfigOverlay = {
@@ -32,6 +35,10 @@ export type PlatformConfigOverlay = {
       model?: { primary: string; fallback?: string };
       compaction?: { mode: string };
       workspace?: string;
+      subagents?: {
+        maxSpawnDepth?: number;
+        maxChildrenPerAgent?: number;
+      };
     };
   };
   tools?: { alsoAllow?: string[] };
@@ -102,6 +109,7 @@ function mapAgentToConfig(
 
   const toolsAllow = def.spec.skills?.cortex?.tools?.allow;
   const toolsDeny = def.spec.skills?.cortex?.tools?.deny;
+  const allowAgents = def.spec.subagents?.allowAgents;
 
   return {
     id: def.metadata.name,
@@ -120,6 +128,7 @@ function mapAgentToConfig(
           },
         }
       : {}),
+    ...(allowAgents && allowAgents.length > 0 ? { subagents: { allowAgents } } : {}),
   };
 }
 
@@ -211,12 +220,24 @@ export function loadPlatformAgentOverlay(stateDir: string): PlatformConfigOverla
     }
   }
 
+  // Orchestrators are user-facing (get default: true); specialists are internal-only.
+  // If no agent has role: "orchestrator", fall back to the first agent.
+  const orchestratorIdx = registry.agents.findIndex(
+    (e) => e.definition.spec.role === "orchestrator",
+  );
+  const defaultIdx = orchestratorIdx >= 0 ? orchestratorIdx : 0;
+
   const agentConfigs = registry.agents.map((entry, idx) =>
-    mapAgentToConfig(entry, stateDir, idx === 0),
+    mapAgentToConfig(entry, stateDir, idx === defaultIdx),
   );
 
-  const primaryAgent = agentConfigs[0];
-  const compactionMode = registry.agents[0]?.definition.spec.runtime.compaction?.mode;
+  const primaryAgent = agentConfigs[defaultIdx];
+  const compactionMode = registry.agents[defaultIdx]?.definition.spec.runtime.compaction?.mode;
+
+  // Resolve subagent spawn depth from the orchestrator's config
+  const orchestratorDef = registry.agents[defaultIdx]?.definition;
+  const maxSpawnDepth = orchestratorDef?.spec.subagents?.maxSpawnDepth ?? 2;
+  const maxChildren = orchestratorDef?.spec.subagents?.maxConcurrent ?? 5;
 
   const allToolAllows = registry.agents.flatMap(
     (e) => e.definition.spec.skills?.cortex?.tools?.allow ?? [],
@@ -237,6 +258,10 @@ export function loadPlatformAgentOverlay(stateDir: string): PlatformConfigOverla
         model: primaryAgent.model,
         ...(compactionMode ? { compaction: { mode: compactionMode } } : {}),
         workspace: primaryAgent.workspace,
+        subagents: {
+          maxSpawnDepth,
+          maxChildrenPerAgent: maxChildren,
+        },
       },
     },
     ...(uniqueToolAllows.length > 0 ? { tools: { alsoAllow: uniqueToolAllows } } : {}),

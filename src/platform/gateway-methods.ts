@@ -6,7 +6,12 @@
  *
  * Called from the sonance-cortex plugin's registerLocalSonanceMethods().
  */
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import YAML from "yaml";
 import { createAthenaDatabase, type AthenaDatabase } from "./database/index.js";
+import { loadAgentRegistry } from "./registry.js";
 
 type GatewayApi = {
   registerGatewayMethod(
@@ -28,7 +33,125 @@ function getDb(): AthenaDatabase {
   return db;
 }
 
+function resolveRepoRoot(): string {
+  let dir = dirname(new URL(import.meta.url).pathname);
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, "package.json"))) {
+      return dir;
+    }
+    dir = dirname(dir);
+  }
+  return process.cwd();
+}
+
 export function registerPlatformMethods(api: GatewayApi): void {
+  // -- Agent Definitions --------------------------------------------------
+
+  api.registerGatewayMethod("athena.platform.agents", ({ respond }) => {
+    try {
+      const root = resolveRepoRoot();
+      const registry = loadAgentRegistry(root);
+      const agents = registry.agents.map((entry) => {
+        const def = entry.definition;
+        return {
+          id: def.metadata.name,
+          displayName: def.metadata.displayName,
+          description: def.metadata.description ?? "",
+          avatar: def.metadata.avatar ?? null,
+          aliases: def.metadata.aliases ?? [],
+          team: def.metadata.team ?? null,
+          owner: def.metadata.owner ?? null,
+          role: def.spec.role ?? "specialist",
+          model: def.spec.runtime.model,
+          compaction: def.spec.runtime.compaction ?? null,
+          gateways: def.spec.gateways ?? {},
+          skills: def.spec.skills ?? {},
+          subagents: def.spec.subagents ?? null,
+          cron: def.spec.cron ?? [],
+          access: def.spec.access ?? {},
+          collaboration: def.spec.collaboration ?? {},
+          routing: def.spec.routing ?? {},
+          soulContent: entry.soulContent,
+          soulPath: entry.soulPath,
+          definitionPath: entry.definitionPath,
+        };
+      });
+      respond(true, { agents, errors: registry.errors });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  api.registerGatewayMethod("athena.platform.agent.soul.update", ({ params, respond }) => {
+    try {
+      const agentId = str(params?.agentId);
+      const content = typeof params?.content === "string" ? params.content : null;
+      if (!agentId || content === null) {
+        respond(false, { error: "agentId and content are required" });
+        return;
+      }
+      const root = resolveRepoRoot();
+      const soulPath = resolve(root, "agents", "definitions", agentId, "SOUL.md");
+      if (!existsSync(dirname(soulPath))) {
+        respond(false, { error: `Agent directory not found for "${agentId}"` });
+        return;
+      }
+      writeFileSync(soulPath, content, "utf-8");
+      // Also sync to workspace so the running agent picks it up
+      const stateDir =
+        process.env.ATHENA_STATE_DIR?.trim() ||
+        process.env.OPENCLAW_STATE_DIR?.trim() ||
+        join(homedir(), ".openclaw");
+      const workspaceSoul = join(stateDir, `workspace-${agentId}`, "SOUL.md");
+      if (existsSync(dirname(workspaceSoul))) {
+        mkdirSync(dirname(workspaceSoul), { recursive: true });
+        writeFileSync(workspaceSoul, content, "utf-8");
+      }
+      respond(true, { ok: true });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
+  api.registerGatewayMethod("athena.platform.agent.config.update", ({ params, respond }) => {
+    try {
+      const agentId = str(params?.agentId);
+      if (!agentId) {
+        respond(false, { error: "agentId is required" });
+        return;
+      }
+      const root = resolveRepoRoot();
+      const yamlPath = resolve(root, "agents", "definitions", agentId, "agent.yaml");
+      if (!existsSync(yamlPath)) {
+        respond(false, { error: `Agent definition not found for "${agentId}"` });
+        return;
+      }
+      const raw = readFileSync(yamlPath, "utf-8");
+      const doc = YAML.parseDocument(raw);
+
+      if (typeof params?.role === "string") {
+        doc.setIn(["spec", "role"], params.role);
+      }
+      if (params?.model && typeof params.model === "object") {
+        const model = params.model as Record<string, unknown>;
+        if (typeof model.primary === "string") {
+          doc.setIn(["spec", "runtime", "model", "primary"], model.primary);
+        }
+        if (typeof model.fallback === "string") {
+          doc.setIn(["spec", "runtime", "model", "fallback"], model.fallback);
+        }
+      }
+      if (Array.isArray(params?.allowAgents)) {
+        doc.setIn(["spec", "subagents", "allowAgents"], params.allowAgents);
+      }
+
+      writeFileSync(yamlPath, doc.toString(), "utf-8");
+      respond(true, { ok: true });
+    } catch (err) {
+      respond(false, { error: String(err) });
+    }
+  });
+
   // -- Stats / Overview ---------------------------------------------------
 
   api.registerGatewayMethod("athena.platform.stats", async ({ respond }) => {

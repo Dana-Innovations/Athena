@@ -59,6 +59,9 @@ import {
   deletePlatformMemory,
   loadPlatformAudit,
   loadPlatformMetrics,
+  loadPlatformAgents,
+  updateAgentSoul,
+  updateAgentConfig,
   type PlatformState,
 } from "./controllers/platform.ts";
 import { loadPresence } from "./controllers/presence.ts";
@@ -92,7 +95,13 @@ import {
   reviewAllUpdates,
 } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
-import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab, type Tab } from "./navigation.ts";
+import {
+  TAB_GROUPS,
+  TAB_GROUPS_LEGACY,
+  subtitleForTab,
+  titleForTab,
+  type Tab,
+} from "./navigation.ts";
 import { renderAdmin } from "./views/admin.ts";
 import { renderAgents } from "./views/agents.ts";
 import { renderApollo } from "./views/apollo.ts";
@@ -110,6 +119,7 @@ import { renderLanding } from "./views/landing.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
+import { renderAgentManager } from "./views/platform-agents.ts";
 import { renderPlatformAudit } from "./views/platform-audit.ts";
 import { renderConversationBrowser } from "./views/platform-conversations.ts";
 import { renderPlatformDashboard } from "./views/platform-dashboard.ts";
@@ -650,6 +660,46 @@ export function renderApp(state: AppViewState) {
                   void loadPlatformMetrics(state as unknown as PlatformState);
                 },
                 onNavigate: (tab) => state.setTab(tab as Tab),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-agents"
+            ? renderAgentManager({
+                loading: state.platformAgentsLoading,
+                error: state.platformAgentsError,
+                agents: state.platformAgents,
+                selectedAgentId: state.platformSelectedAgentId,
+                soulEditing: state.platformSoulEditing,
+                soulDraft: state.platformSoulDraft,
+                soulSaving: state.platformSoulSaving,
+                onRefresh: () => void loadPlatformAgents(state as unknown as PlatformState),
+                onSelectAgent: (id) => {
+                  state.platformSelectedAgentId = id;
+                  state.platformSoulEditing = false;
+                  state.platformSoulDraft = null;
+                },
+                onEditSoul: () => {
+                  const agent = state.platformAgents?.find(
+                    (a: { id: string }) => a.id === state.platformSelectedAgentId,
+                  );
+                  state.platformSoulEditing = true;
+                  state.platformSoulDraft = agent?.soulContent ?? "";
+                },
+                onSoulDraftChange: (content) => {
+                  state.platformSoulDraft = content;
+                },
+                onSaveSoul: (agentId, content) => {
+                  void updateAgentSoul(state as unknown as PlatformState, agentId, content);
+                },
+                onCancelEdit: () => {
+                  state.platformSoulEditing = false;
+                  state.platformSoulDraft = null;
+                },
+                onUpdateConfig: (agentId, updates) => {
+                  void updateAgentConfig(state as unknown as PlatformState, agentId, updates);
+                },
               })
             : nothing
         }

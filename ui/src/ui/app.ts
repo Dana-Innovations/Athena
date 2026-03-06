@@ -407,6 +407,14 @@ export class OpenClawApp extends LitElement {
   @state() platformMetrics: import("./controllers/platform.js").PlatformMetric[] | null = null;
   @state() platformMetricsLoading = false;
 
+  @state() platformAgents: import("./controllers/platform.js").PlatformAgent[] | null = null;
+  @state() platformAgentsLoading = false;
+  @state() platformAgentsError: string | null = null;
+  @state() platformSelectedAgentId: string | null = null;
+  @state() platformSoulEditing = false;
+  @state() platformSoulDraft: string | null = null;
+  @state() platformSoulSaving = false;
+
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];
   @state() cronStatus: CronStatus | null = null;

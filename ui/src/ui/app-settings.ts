@@ -260,6 +260,10 @@ export async function refreshActiveTab(host: SettingsHost) {
     await loadPlatformStats(host as unknown as Parameters<typeof loadPlatformStats>[0]);
     await loadPlatformMetrics(host as unknown as Parameters<typeof loadPlatformMetrics>[0]);
   }
+  if (host.tab === "platform-agents") {
+    const { loadPlatformAgents } = await import("./controllers/platform.ts");
+    await loadPlatformAgents(host as unknown as Parameters<typeof loadPlatformAgents>[0]);
+  }
   if (host.tab === "platform-conversations") {
     const { loadPlatformConversations } = await import("./controllers/platform.ts");
     await loadPlatformConversations(
