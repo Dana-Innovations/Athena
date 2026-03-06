@@ -556,6 +556,51 @@ const cortexPlugin = {
       }
     });
 
+    api.registerGatewayMethod("sonance.admin.project_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminProjectAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.grant_project_access", async ({ params, respond }) => {
+      const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+      const project_ref = typeof params?.project_ref === "string" ? params.project_ref.trim() : "";
+      const project_name =
+        typeof params?.project_name === "string" ? params.project_name.trim() : "";
+      if (!user_id || !project_ref) {
+        respond(false, { error: "user_id and project_ref are required" });
+        return;
+      }
+      try {
+        const result = await client.grantProjectAccess({ user_id, project_ref, project_name });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const project_ref =
+          typeof params?.project_ref === "string" ? params.project_ref.trim() : "";
+        if (!user_id || !project_ref) {
+          respond(false, { error: "user_id and project_ref are required" });
+          return;
+        }
+        try {
+          const result = await client.revokeProjectAccess({ user_id, project_ref });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
     api.registerGatewayMethod("sonance.skills.update_settings", async ({ params, respond }) => {
       const skillName = typeof params?.skillName === "string" ? params.skillName.trim() : "";
       if (!skillName) {

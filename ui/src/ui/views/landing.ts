@@ -1048,7 +1048,7 @@ export function renderLanding(state: AppViewState) {
             <div class="landing-code" data-os="mac" style="${_isWindows ? "display:none" : ""}">
               <div class="landing-code__text">
                 <span class="landing-code__prefix">$</span>
-                curl -fsSL https://cortex.sonance.com/install.sh | bash
+                curl -fsSL https://cortex-bice.vercel.app/install.sh | bash
               </div>
               <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
                 ${icons.copy}
@@ -1057,7 +1057,7 @@ export function renderLanding(state: AppViewState) {
             <div class="landing-code" data-os="windows" style="${_isWindows ? "" : "display:none"}">
               <div class="landing-code__text">
                 <span class="landing-code__prefix">&gt;</span>
-                irm https://cortex.sonance.com/install.ps1 | iex
+                irm https://cortex-bice.vercel.app/install.ps1 | iex
               </div>
               <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
                 ${icons.copy}
