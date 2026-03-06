@@ -161,6 +161,34 @@ export async function revokeProjectAccess(
   }
 }
 
+export async function revokeAllProjectAccess(state: AdminState, userId: string): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_all_project_access", {
+      user_id: userId,
+    });
+    await loadAdminProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke all access: ${String(err)}`;
+  }
+}
+
+export async function grantAllProjectAccess(state: AdminState, userId: string): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_all_project_access", {
+      user_id: userId,
+    });
+    await loadAdminProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant all access: ${String(err)}`;
+  }
+}
+
 export async function loadAdminData(state: AdminState): Promise<void> {
   switch (state.adminPanel) {
     case "users":

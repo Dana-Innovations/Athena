@@ -11,8 +11,10 @@ import {
   type AdminActivityLogHost,
 } from "./controllers/admin-activity-log.ts";
 import {
+  grantAllProjectAccess,
   grantProjectAccess,
   loadAdminData,
+  revokeAllProjectAccess,
   revokeProjectAccess,
   type AdminState,
 } from "./controllers/admin.ts";
@@ -668,6 +670,12 @@ export function renderApp(state: AppViewState) {
                 },
                 onProjectRevoke: (userId, projectRef) => {
                   void revokeProjectAccess(state as unknown as AdminState, userId, projectRef);
+                },
+                onProjectGrantAll: (userId) => {
+                  void grantAllProjectAccess(state as unknown as AdminState, userId);
+                },
+                onProjectRevokeAll: (userId) => {
+                  void revokeAllProjectAccess(state as unknown as AdminState, userId);
                 },
                 onProjectToggleExpand: (userId) => {
                   state.adminProjectsExpandedUserId =

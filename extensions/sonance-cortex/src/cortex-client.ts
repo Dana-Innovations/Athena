@@ -830,6 +830,26 @@ export class CortexClient {
     );
   }
 
+  /** Revoke all Supabase project access for a user (admin-only). */
+  async revokeAllProjectAccess(params: {
+    user_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/project-access/revoke-all?user_id=${encodeURIComponent(params.user_id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Grant a user access to all known Supabase projects (admin-only). */
+  async grantAllProjectAccess(params: {
+    user_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/project-access/grant-all", {
+      method: "POST",
+      body: params,
+    });
+  }
+
   /** Fetch the LLM-ready skills prompt for system prompt injection. */
   async getSkillsPrompt(params?: {
     minPriority?: string;
