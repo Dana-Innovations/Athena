@@ -115,3 +115,23 @@ export type AdminActivityFilterOptions = {
   users: { id: string; email: string; name: string | null }[];
   services: string[];
 };
+
+export type AdminProjectAccessGrant = {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  project_ref: string;
+  project_name: string | null;
+  grant_source: string;
+  granted_by: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+};
+
+export type AdminProjectSummary = {
+  project_ref: string;
+  project_name: string | null;
+  user_count: number;
+  grants: AdminProjectAccessGrant[];
+};

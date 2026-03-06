@@ -37,6 +37,7 @@ import type {
   AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
+  AdminProjectSummary,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
@@ -270,7 +271,7 @@ export type AppViewState = {
   upstreamFullReviewLoading: boolean;
   dashboardStats: import("./controllers/dashboard-stats.ts").DashboardStats | null;
   dashboardStatsLoading: boolean;
-  adminPanel: "users" | "usage" | "mcp" | "activity";
+  adminPanel: "users" | "usage" | "mcp" | "activity" | "projects";
   adminLoading: boolean;
   adminError: string | null;
   adminUsers: AdminUser[] | null;
@@ -279,6 +280,8 @@ export type AppViewState = {
   adminUsageDetails: AdminUsageDetail[] | null;
   adminMcps: AdminMcpInfo[] | null;
   adminMcpAccess: AdminMcpAccessEntry[] | null;
+  adminProjects: AdminProjectSummary[] | null;
+  adminProjectsExpandedUserId: string | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;

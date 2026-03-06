@@ -783,6 +783,53 @@ export class CortexClient {
     return this.request("/api/v1/admin/mcp-access");
   }
 
+  /** Get Supabase project access matrix (admin-only). */
+  async getAdminProjectAccess(): Promise<{
+    projects: Array<{
+      project_ref: string;
+      project_name: string | null;
+      user_count: number;
+      grants: Array<{
+        id: string;
+        user_id: string;
+        email: string;
+        display_name: string | null;
+        project_ref: string;
+        project_name: string | null;
+        grant_source: string;
+        granted_by: string | null;
+        created_at: string | null;
+        expires_at: string | null;
+      }>;
+    }>;
+    total_grants: number;
+  }> {
+    return this.request("/api/v1/admin/project-access");
+  }
+
+  /** Grant a user access to a Supabase project (admin-only). */
+  async grantProjectAccess(params: {
+    user_id: string;
+    project_ref: string;
+    project_name?: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/project-access/grant", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  /** Revoke a user's access to a Supabase project (admin-only). */
+  async revokeProjectAccess(params: {
+    user_id: string;
+    project_ref: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/project-access/revoke?user_id=${encodeURIComponent(params.user_id)}&project_ref=${encodeURIComponent(params.project_ref)}`,
+      { method: "DELETE" },
+    );
+  }
+
   /** Fetch the LLM-ready skills prompt for system prompt injection. */
   async getSkillsPrompt(params?: {
     minPriority?: string;

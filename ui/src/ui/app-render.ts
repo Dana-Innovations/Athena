@@ -10,7 +10,12 @@ import {
   goToActivityLogPage,
   type AdminActivityLogHost,
 } from "./controllers/admin-activity-log.ts";
-import { loadAdminData, type AdminState } from "./controllers/admin.ts";
+import {
+  grantProjectAccess,
+  loadAdminData,
+  revokeProjectAccess,
+  type AdminState,
+} from "./controllers/admin.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
@@ -639,6 +644,8 @@ export function renderApp(state: AppViewState) {
                 usageDetails: state.adminUsageDetails,
                 mcps: state.adminMcps,
                 mcpAccess: state.adminMcpAccess,
+                projects: state.adminProjects,
+                projectsExpandedUserId: state.adminProjectsExpandedUserId,
                 activityLog: state.adminActivityLog,
                 activityLogLoading: state.adminActivityLogLoading,
                 activityFilters: state.adminActivityFilters,
@@ -650,6 +657,21 @@ export function renderApp(state: AppViewState) {
                 },
                 onUsersFilterChange: (filter) => {
                   state.adminUsersFilter = filter;
+                },
+                onProjectGrant: (userId, projectRef, projectName) => {
+                  void grantProjectAccess(
+                    state as unknown as AdminState,
+                    userId,
+                    projectRef,
+                    projectName,
+                  );
+                },
+                onProjectRevoke: (userId, projectRef) => {
+                  void revokeProjectAccess(state as unknown as AdminState, userId, projectRef);
+                },
+                onProjectToggleExpand: (userId) => {
+                  state.adminProjectsExpandedUserId =
+                    state.adminProjectsExpandedUserId === userId ? null : userId;
                 },
                 onActivityFilterChange: (key, value) => {
                   applyActivityLogFilter(state as unknown as AdminActivityLogHost, key, value);

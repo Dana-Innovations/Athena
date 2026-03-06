@@ -11,6 +11,7 @@ import type {
   AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
+  AdminProjectSummary,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
@@ -24,13 +25,14 @@ import {
 export type AdminState = {
   adminLoading: boolean;
   adminError: string | null;
-  adminPanel: "users" | "usage" | "mcp" | "activity";
+  adminPanel: "users" | "usage" | "mcp" | "activity" | "projects";
   adminUsers: AdminUser[] | null;
   adminUsersFilter: string;
   adminUsageSummary: AdminUsageSummary | null;
   adminUsageDetails: AdminUsageDetail[] | null;
   adminMcps: AdminMcpInfo[] | null;
   adminMcpAccess: AdminMcpAccessEntry[] | null;
+  adminProjects: AdminProjectSummary[] | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;
@@ -100,6 +102,65 @@ export async function loadAdminMcpAccess(state: AdminState): Promise<void> {
   }
 }
 
+export async function loadAdminProjectAccess(state: AdminState): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  state.adminLoading = true;
+  state.adminError = null;
+  try {
+    const result = (await state.client.request("sonance.admin.project_access")) as {
+      projects: AdminProjectSummary[];
+      total_grants: number;
+    };
+    state.adminProjects = result.projects;
+  } catch (err) {
+    state.adminError = `Failed to load project access: ${String(err)}`;
+  } finally {
+    state.adminLoading = false;
+  }
+}
+
+export async function grantProjectAccess(
+  state: AdminState,
+  userId: string,
+  projectRef: string,
+  projectName: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_project_access", {
+      user_id: userId,
+      project_ref: projectRef,
+      project_name: projectName,
+    });
+    await loadAdminProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant access: ${String(err)}`;
+  }
+}
+
+export async function revokeProjectAccess(
+  state: AdminState,
+  userId: string,
+  projectRef: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_project_access", {
+      user_id: userId,
+      project_ref: projectRef,
+    });
+    await loadAdminProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke access: ${String(err)}`;
+  }
+}
+
 export async function loadAdminData(state: AdminState): Promise<void> {
   switch (state.adminPanel) {
     case "users":
@@ -108,6 +169,9 @@ export async function loadAdminData(state: AdminState): Promise<void> {
       return loadAdminUsage(state);
     case "mcp":
       return loadAdminMcpAccess(state);
+    case "projects":
+      void loadAdminUsers(state);
+      return loadAdminProjectAccess(state);
     case "activity": {
       const host = state as unknown as AdminActivityLogHost;
       void loadActivityLogFilterOptions(host);
