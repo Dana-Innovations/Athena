@@ -601,6 +601,40 @@ const cortexPlugin = {
       },
     );
 
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_all_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        if (!user_id) {
+          respond(false, { error: "user_id is required" });
+          return;
+        }
+        try {
+          const result = await client.revokeAllProjectAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_all_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        if (!user_id) {
+          respond(false, { error: "user_id is required" });
+          return;
+        }
+        try {
+          const result = await client.grantAllProjectAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
     api.registerGatewayMethod("sonance.skills.update_settings", async ({ params, respond }) => {
       const skillName = typeof params?.skillName === "string" ? params.skillName.trim() : "";
       if (!skillName) {

@@ -647,7 +647,10 @@ function handleCopyCommand(e: Event) {
   e.stopPropagation();
   const btn = e.currentTarget as HTMLElement;
   const codeText = btn.parentElement!.querySelector(".landing-code__text")!;
-  const command = codeText.textContent.replace(/^\$\s*|^>\s*/, "").trim();
+  const command = codeText.textContent
+    .replace(/\s+/g, " ")
+    .replace(/^\$\s*|^>\s*/, "")
+    .trim();
   void navigator.clipboard.writeText(command).then(() => {
     btn.classList.add("landing-code__copy--copied");
     setTimeout(() => btn.classList.remove("landing-code__copy--copied"), 2000);
@@ -665,14 +668,14 @@ function handleTabSwitch(e: Event) {
   });
 }
 
-function toggleNpxFallback(e: Event) {
+function toggleInstallFallback(e: Event) {
   e.stopPropagation();
   const btn = e.currentTarget as HTMLElement;
-  const npxBlock = btn
+  const fallback = btn
     .closest(".landing-install")!
-    .querySelector(".landing-install__npx") as HTMLElement;
-  if (npxBlock) {
-    npxBlock.style.display = npxBlock.style.display === "none" ? "" : "none";
+    .querySelector(".landing-install__fallback") as HTMLElement;
+  if (fallback) {
+    fallback.style.display = fallback.style.display === "none" ? "" : "none";
   }
 }
 
@@ -1039,44 +1042,36 @@ export function renderLanding(state: AppViewState) {
             One command sets up everything \u2014 authentication, client configuration, and account linking.
           </p>
 
-          <!-- Install command with OS tabs -->
+          <!-- Install command -->
           <div class="landing-install">
-            <div class="landing-install__tabs">
-              <button class="landing-install__tab ${_isWindows ? "" : "active"}" data-os="mac" @click=${handleTabSwitch}>Mac / Linux</button>
-              <button class="landing-install__tab ${_isWindows ? "active" : ""}" data-os="windows" @click=${handleTabSwitch}>Windows</button>
-            </div>
-            <div class="landing-code" data-os="mac" style="${_isWindows ? "display:none" : ""}">
-              <div class="landing-code__text">
-                <span class="landing-code__prefix">$</span>
-                curl -fsSL https://cortex-bice.vercel.app/install.sh | bash
-              </div>
-              <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
-                ${icons.copy}
-              </button>
-            </div>
-            <div class="landing-code" data-os="windows" style="${_isWindows ? "" : "display:none"}">
-              <div class="landing-code__text">
-                <span class="landing-code__prefix">&gt;</span>
-                irm https://cortex-bice.vercel.app/install.ps1 | iex
-              </div>
+            <div class="landing-code">
+              <div class="landing-code__text"><span class="landing-code__prefix">$</span> npx @danainnovations/cortex-mcp@latest setup</div>
               <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
                 ${icons.copy}
               </button>
             </div>
             <p class="landing-install__alt">
-              Already have Node.js?
-              <button @click=${toggleNpxFallback}>Use npx directly</button>
+              Not working?
+              <button @click=${toggleInstallFallback}>Use the install script instead</button>
             </p>
-            <div class="landing-install__npx" style="display:none">
-              <div class="landing-code">
-                <div class="landing-code__text">
-                  <span class="landing-code__prefix">$</span>
-                  npx @danainnovations/cortex-mcp@latest setup
-                </div>
+            <div class="landing-install__fallback" style="display:none">
+              <div class="landing-install__tabs">
+                <button class="landing-install__tab ${_isWindows ? "" : "active"}" data-os="mac" @click=${handleTabSwitch}>Mac / Linux</button>
+                <button class="landing-install__tab ${_isWindows ? "active" : ""}" data-os="windows" @click=${handleTabSwitch}>Windows</button>
+              </div>
+              <div class="landing-code" data-os="mac" style="${_isWindows ? "display:none" : ""}">
+                <div class="landing-code__text"><span class="landing-code__prefix">$</span> curl -fsSL https://cortex-bice.vercel.app/install.sh | bash</div>
                 <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
                   ${icons.copy}
                 </button>
               </div>
+              <div class="landing-code" data-os="windows" style="${_isWindows ? "" : "display:none"}">
+                <div class="landing-code__text"><span class="landing-code__prefix">&gt;</span> irm https://cortex-bice.vercel.app/install.ps1 | iex</div>
+                <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
+                  ${icons.copy}
+                </button>
+              </div>
+              <p class="landing-install__fallback-note">This installs Node.js if needed, then runs the setup wizard.</p>
             </div>
           </div>
 

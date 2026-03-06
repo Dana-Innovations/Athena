@@ -15,6 +15,8 @@ export type AdminProjectsProps = {
   onToggleExpand: (userId: string) => void;
   onGrant: (userId: string, projectRef: string, projectName: string) => void;
   onRevoke: (userId: string, projectRef: string) => void;
+  onGrantAll: (userId: string) => void;
+  onRevokeAll: (userId: string) => void;
 };
 
 type UserProjectGroup = {
@@ -88,7 +90,9 @@ export function renderAdminProjects(props: AdminProjectsProps) {
   }
 
   const userGroups = groupByUser(projects);
-  const totalGrants = projects.reduce((sum, p) => sum + p.grants.length, 0);
+  const allGrants = projects.flatMap((p) => p.grants);
+  const activeGrants = allGrants.filter((g) => g.is_active).length;
+  const revokedGrants = allGrants.filter((g) => !g.is_active).length;
   const uniqueProjects = new Set(projects.map((p) => p.project_ref)).size;
 
   return html`
@@ -107,8 +111,14 @@ export function renderAdminProjects(props: AdminProjectsProps) {
       </div>
       <div class="card card-compact" style="flex: 1;">
         <div class="card-body" style="text-align: center;">
-          <div style="font-size: 1.5rem; font-weight: 600;">${totalGrants}</div>
-          <div class="muted" style="font-size: 0.8rem;">Total Grants</div>
+          <div style="font-size: 1.5rem; font-weight: 600;">${activeGrants}</div>
+          <div class="muted" style="font-size: 0.8rem;">Active Grants</div>
+        </div>
+      </div>
+      <div class="card card-compact" style="flex: 1;">
+        <div class="card-body" style="text-align: center;">
+          <div style="font-size: 1.5rem; font-weight: 600; ${revokedGrants > 0 ? "color: var(--danger, #ef4444);" : ""}">${revokedGrants}</div>
+          <div class="muted" style="font-size: 0.8rem;">Revoked</div>
         </div>
       </div>
     </div>
@@ -137,6 +147,8 @@ export function renderAdminProjects(props: AdminProjectsProps) {
 
 function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
   const isExpanded = props.expandedUserId === group.userId;
+  const activeCount = group.grants.filter((g) => g.is_active).length;
+  const revokedCount = group.grants.length - activeCount;
 
   return html`
     <tr
@@ -146,7 +158,10 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
       <td style="width: 24px; text-align: center; font-size: 0.7rem;">${isExpanded ? "▼" : "▶"}</td>
       <td class="mono" style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${group.email}">${group.email}</td>
       <td>${group.displayName ?? "-"}</td>
-      <td><span class="pill pill--sm">${group.grants.length}</span></td>
+      <td>
+        <span class="pill pill--sm">${activeCount}</span>
+        ${revokedCount > 0 ? html`<span class="pill pill--sm danger" style="margin-left: 4px;" title="${revokedCount} revoked">${revokedCount} revoked</span>` : nothing}
+      </td>
     </tr>
     ${
       isExpanded
@@ -154,11 +169,30 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
           <tr>
             <td colspan="4" style="padding: 0;">
               <div style="padding: 8px 8px 8px 32px; background: var(--bg-subtle, rgba(255,255,255,0.03));">
+                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                  <button
+                    class="btn btn--sm"
+                    style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
+                    @click=${(e: Event) => {
+                      e.stopPropagation();
+                      props.onGrantAll(group.userId);
+                    }}
+                  >Grant All Projects</button>
+                  <button
+                    class="btn btn--sm"
+                    style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
+                    @click=${(e: Event) => {
+                      e.stopPropagation();
+                      props.onRevokeAll(group.userId);
+                    }}
+                  >Revoke All</button>
+                </div>
                 <table class="data-table" style="width: 100%; font-size: 0.82rem;">
                   <thead>
                     <tr>
                       <th>Project Name</th>
                       <th>Project Ref</th>
+                      <th>Status</th>
                       <th>Source</th>
                       <th>Granted</th>
                       <th></th>
@@ -167,7 +201,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                   <tbody>
                     ${group.grants.map(
                       (grant) => html`
-                        <tr>
+                        <tr style="${grant.is_active ? "" : "opacity: 0.5;"}">
                           <td>${
                             grant.project_name ||
                             html`
@@ -175,17 +209,41 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                             `
                           }</td>
                           <td class="mono" style="font-size: 0.8rem;">${grant.project_ref}</td>
+                          <td>${
+                            grant.is_active
+                              ? html`
+                                  <span class="pill pill--sm success">Active</span>
+                                `
+                              : html`
+                                  <span class="pill pill--sm danger">Revoked</span>
+                                `
+                          }</td>
                           <td>${grantSourcePill(grant.grant_source)}</td>
                           <td class="mono">${formatDate(grant.created_at)}</td>
                           <td>
-                            <button
-                              class="btn btn--sm"
-                              style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
-                              @click=${(e: Event) => {
-                                e.stopPropagation();
-                                props.onRevoke(grant.user_id, grant.project_ref);
-                              }}
-                            >Revoke</button>
+                            ${
+                              grant.is_active
+                                ? html`<button
+                                  class="btn btn--sm"
+                                  style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
+                                  @click=${(e: Event) => {
+                                    e.stopPropagation();
+                                    props.onRevoke(grant.user_id, grant.project_ref);
+                                  }}
+                                >Revoke</button>`
+                                : html`<button
+                                  class="btn btn--sm"
+                                  style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
+                                  @click=${(e: Event) => {
+                                    e.stopPropagation();
+                                    props.onGrant(
+                                      grant.user_id,
+                                      grant.project_ref,
+                                      grant.project_name || "",
+                                    );
+                                  }}
+                                >Grant</button>`
+                            }
                           </td>
                         </tr>
                       `,

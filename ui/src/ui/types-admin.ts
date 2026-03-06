@@ -127,6 +127,8 @@ export type AdminProjectAccessGrant = {
   granted_by: string | null;
   created_at: string | null;
   expires_at: string | null;
+  is_active: boolean;
+  revoked_at: string | null;
 };
 
 export type AdminProjectSummary = {

@@ -189,13 +189,20 @@
   text-decoration: underline;
 }
 
-.landing-install__npx {
+.landing-install__fallback {
   margin-top: 8px;
 }
 
-.landing-install__npx .landing-code {
+.landing-install__fallback .landing-code {
   margin-bottom: 0;
   animation: none;
+}
+
+.landing-install__fallback-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+  text-align: center;
 }
 
 .landing-code {

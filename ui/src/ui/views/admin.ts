@@ -46,6 +46,8 @@ export type AdminViewProps = {
   onUsersFilterChange: (filter: string) => void;
   onProjectGrant: (userId: string, projectRef: string, projectName: string) => void;
   onProjectRevoke: (userId: string, projectRef: string) => void;
+  onProjectGrantAll: (userId: string) => void;
+  onProjectRevokeAll: (userId: string) => void;
   onProjectToggleExpand: (userId: string) => void;
   onActivityFilterChange: (key: keyof AdminActivityFilters, value: string | null) => void;
   onActivityPageChange: (page: number) => void;
@@ -127,6 +129,8 @@ export function renderAdmin(props: AdminViewProps) {
             onToggleExpand: props.onProjectToggleExpand,
             onGrant: props.onProjectGrant,
             onRevoke: props.onProjectRevoke,
+            onGrantAll: props.onProjectGrantAll,
+            onRevokeAll: props.onProjectRevokeAll,
           })
         : nothing
     }
