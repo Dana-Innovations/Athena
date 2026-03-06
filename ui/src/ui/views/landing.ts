@@ -643,14 +643,37 @@ function handleBackdropClick(e: Event) {
 /*  Copy-to-clipboard helper                                          */
 /* ------------------------------------------------------------------ */
 
-function handleCopy(e: Event) {
+function handleCopyCommand(e: Event) {
   e.stopPropagation();
   const btn = e.currentTarget as HTMLElement;
-  const command = "npx @danainnovations/cortex-mcp@latest setup";
+  const codeText = btn.parentElement!.querySelector(".landing-code__text")!;
+  const command = codeText.textContent.replace(/^\$\s*|^>\s*/, "").trim();
   void navigator.clipboard.writeText(command).then(() => {
     btn.classList.add("landing-code__copy--copied");
     setTimeout(() => btn.classList.remove("landing-code__copy--copied"), 2000);
   });
+}
+
+function handleTabSwitch(e: Event) {
+  const btn = e.currentTarget as HTMLElement;
+  const os = btn.dataset.os;
+  const container = btn.closest(".landing-install")!;
+  container.querySelectorAll(".landing-install__tab").forEach((t) => t.classList.remove("active"));
+  btn.classList.add("active");
+  container.querySelectorAll(".landing-code[data-os]").forEach((c) => {
+    (c as HTMLElement).style.display = (c as HTMLElement).dataset.os === os ? "" : "none";
+  });
+}
+
+function toggleNpxFallback(e: Event) {
+  e.stopPropagation();
+  const btn = e.currentTarget as HTMLElement;
+  const npxBlock = btn
+    .closest(".landing-install")!
+    .querySelector(".landing-install__npx") as HTMLElement;
+  if (npxBlock) {
+    npxBlock.style.display = npxBlock.style.display === "none" ? "" : "none";
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -959,6 +982,8 @@ function renderUpdatesSection() {
 /*  Main render                                                       */
 /* ------------------------------------------------------------------ */
 
+const _isWindows = /Win/.test(navigator.userAgent);
+
 export function renderLanding(state: AppViewState) {
   const isLoading = state.cortexLoginLoading;
   const error = state.cortexLoginError;
@@ -1014,19 +1039,45 @@ export function renderLanding(state: AppViewState) {
             One command sets up everything \u2014 authentication, client configuration, and account linking.
           </p>
 
-          <!-- Install command -->
-          <div class="landing-code">
-            <div class="landing-code__text">
-              <span class="landing-code__prefix">$</span>
-              npx @danainnovations/cortex-mcp@latest setup
+          <!-- Install command with OS tabs -->
+          <div class="landing-install">
+            <div class="landing-install__tabs">
+              <button class="landing-install__tab ${_isWindows ? "" : "active"}" data-os="mac" @click=${handleTabSwitch}>Mac / Linux</button>
+              <button class="landing-install__tab ${_isWindows ? "active" : ""}" data-os="windows" @click=${handleTabSwitch}>Windows</button>
             </div>
-            <button
-              class="landing-code__copy"
-              title="Copy command"
-              @click=${handleCopy}
-            >
-              ${icons.copy}
-            </button>
+            <div class="landing-code" data-os="mac" style="${_isWindows ? "display:none" : ""}">
+              <div class="landing-code__text">
+                <span class="landing-code__prefix">$</span>
+                curl -fsSL https://cortex.sonance.com/install.sh | bash
+              </div>
+              <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
+                ${icons.copy}
+              </button>
+            </div>
+            <div class="landing-code" data-os="windows" style="${_isWindows ? "" : "display:none"}">
+              <div class="landing-code__text">
+                <span class="landing-code__prefix">&gt;</span>
+                irm https://cortex.sonance.com/install.ps1 | iex
+              </div>
+              <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
+                ${icons.copy}
+              </button>
+            </div>
+            <p class="landing-install__alt">
+              Already have Node.js?
+              <button @click=${toggleNpxFallback}>Use npx directly</button>
+            </p>
+            <div class="landing-install__npx" style="display:none">
+              <div class="landing-code">
+                <div class="landing-code__text">
+                  <span class="landing-code__prefix">$</span>
+                  npx @danainnovations/cortex-mcp@latest setup
+                </div>
+                <button class="landing-code__copy" title="Copy command" @click=${handleCopyCommand}>
+                  ${icons.copy}
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Setup steps -->
@@ -1037,7 +1088,7 @@ export function renderLanding(state: AppViewState) {
                 <div class="landing-steps__title">Open Terminal</div>
                 <div class="landing-steps__desc">
                   On Mac: press <kbd>Cmd</kbd> + <kbd>Space</kbd>, type <strong>Terminal</strong>, hit Enter.
-                  On Windows: search for <strong>Command Prompt</strong>.
+                  On Windows: search for <strong>PowerShell</strong>.
                 </div>
               </div>
             </div>
@@ -1046,16 +1097,16 @@ export function renderLanding(state: AppViewState) {
               <div class="landing-steps__content">
                 <div class="landing-steps__title">Paste & Run</div>
                 <div class="landing-steps__desc">
-                  Copy the command above, paste it into your terminal, and press Enter.
+                  Copy the command above. It will install Node.js if needed and launch the setup wizard.
                 </div>
               </div>
             </div>
             <div class="landing-steps__item">
               <div class="landing-steps__number">3</div>
               <div class="landing-steps__content">
-                <div class="landing-steps__title">Follow the Prompts</div>
+                <div class="landing-steps__title">Follow the Setup Wizard</div>
                 <div class="landing-steps__desc">
-                  The setup wizard walks you through connecting your accounts. Takes about 2 minutes.
+                  A browser window opens with a 6-step wizard to connect your accounts. Takes about 2 minutes.
                 </div>
               </div>
             </div>
