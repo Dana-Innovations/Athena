@@ -2,8 +2,8 @@
  * File storage abstraction for agent workspaces.
  *
  * Implementations:
- *  - LocalFsProvider  (development)
- *  - AzureBlobProvider (production — future)
+ *  - LocalFsProvider   (development — local filesystem)
+ *  - AzureBlobProvider (production — Azure Blob Storage)
  */
 
 export interface FileStorageProvider {

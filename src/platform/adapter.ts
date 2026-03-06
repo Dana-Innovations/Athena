@@ -7,10 +7,18 @@
  * This is the bridge between the portable agent schema (agent.yaml)
  * and the OpenClaw runtime configuration. If the runtime changes,
  * only this adapter needs to be rewritten.
+ *
+ * File storage goes through the FileStorageProvider abstraction so that
+ * workspace files can live on local disk (dev) or Azure Blob (prod).
+ * OpenClaw's runtime still expects a local workspace path, so the adapter
+ * always maintains a local cache directory and syncs content through the
+ * provider for durability.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { getAgentMessageBus } from "./message-bus.js";
+import { resolveStorageProvider, type FileStorageProvider } from "./persistence/index.js";
+import { writeSoulVersioned } from "./persistence/soul-versioning.js";
 import { loadAgentRegistry, type RegistryEntry } from "./registry.js";
 
 export type AgentConfigFragment = {
@@ -60,10 +68,15 @@ function resolveRepoRoot(): string {
 }
 
 /**
- * Ensure the SOUL.md from the agent definition is synced into the
- * workspace directory where OpenClaw's bootstrap will load it.
+ * Sync the SOUL.md from the agent definition into:
+ *   1. The local workspace directory (OpenClaw reads from here at runtime)
+ *   2. The storage provider (durability — survives container restarts)
  */
-function syncSoulToWorkspace(entry: RegistryEntry, workspaceDir: string): void {
+function syncSoulToWorkspace(
+  entry: RegistryEntry,
+  workspaceDir: string,
+  storage: FileStorageProvider,
+): void {
   if (!entry.soulContent) {
     return;
   }
@@ -71,7 +84,6 @@ function syncSoulToWorkspace(entry: RegistryEntry, workspaceDir: string): void {
   mkdirSync(workspaceDir, { recursive: true });
   const targetPath = join(workspaceDir, "SOUL.md");
 
-  // Only write if content differs (avoids unnecessary disk writes on every config load)
   if (existsSync(targetPath)) {
     const existing = readFileSync(targetPath, "utf-8");
     if (existing === entry.soulContent) {
@@ -80,16 +92,32 @@ function syncSoulToWorkspace(entry: RegistryEntry, workspaceDir: string): void {
   }
 
   writeFileSync(targetPath, entry.soulContent);
+
+  const agentId = entry.definition.metadata.name;
+  writeSoulVersioned(storage, agentId, entry.soulContent).catch((err) =>
+    console.warn(`[platform] durable write failed: ${agentId}/soul/SOUL.md — ${err}`),
+  );
 }
 
 /**
  * Ensure the memory.md exists in the workspace (for onboarding marker).
+ * Also persists to the storage provider for durability.
  */
-function ensureMemoryFile(workspaceDir: string): void {
+function ensureMemoryFile(
+  agentId: string,
+  workspaceDir: string,
+  storage: FileStorageProvider,
+): void {
   const memPath = join(workspaceDir, "memory.md");
   if (!existsSync(memPath)) {
     mkdirSync(workspaceDir, { recursive: true });
-    writeFileSync(memPath, "ONBOARDING_NEEDED\n");
+    const content = "ONBOARDING_NEEDED\n";
+    writeFileSync(memPath, content);
+    storage
+      .write(agentId, "workspace/memory.md", content)
+      .catch((err) =>
+        console.warn(`[platform] durable write failed: ${agentId}/workspace/memory.md — ${err}`),
+      );
   }
 }
 
@@ -100,12 +128,13 @@ function mapAgentToConfig(
   entry: RegistryEntry,
   stateDir: string,
   isDefault: boolean,
+  storage: FileStorageProvider,
 ): AgentConfigFragment {
   const def = entry.definition;
   const workspaceDir = resolve(stateDir, `workspace-${def.metadata.name}`);
 
-  syncSoulToWorkspace(entry, workspaceDir);
-  ensureMemoryFile(workspaceDir);
+  syncSoulToWorkspace(entry, workspaceDir, storage);
+  ensureMemoryFile(def.metadata.name, workspaceDir, storage);
 
   const toolsAllow = def.spec.skills?.cortex?.tools?.allow;
   const toolsDeny = def.spec.skills?.cortex?.tools?.deny;
@@ -171,10 +200,15 @@ function buildMtimeKey(repoRoot: string): string {
 }
 
 /**
- * Re-read SOUL.md for each agent and sync to workspace.
+ * Re-read SOUL.md for each agent and sync to workspace + storage provider.
  * Called on every config load so edits are picked up without restart.
  */
-function syncAllSouls(repoRoot: string, stateDir: string, overlay: PlatformConfigOverlay): void {
+function syncAllSouls(
+  repoRoot: string,
+  _stateDir: string,
+  overlay: PlatformConfigOverlay,
+  storage: FileStorageProvider,
+): void {
   const defsDir = join(repoRoot, "agents", "definitions");
   for (const agent of overlay.agents.list) {
     const soulPath = join(defsDir, agent.id, "SOUL.md");
@@ -184,6 +218,9 @@ function syncAllSouls(repoRoot: string, stateDir: string, overlay: PlatformConfi
       mkdirSync(agent.workspace, { recursive: true });
       if (!existsSync(targetPath) || readFileSync(targetPath, "utf-8") !== content) {
         writeFileSync(targetPath, content);
+        writeSoulVersioned(storage, agent.id, content).catch((err) =>
+          console.warn(`[platform] durable write failed: ${agent.id}/soul/SOUL.md — ${err}`),
+        );
       }
     }
   }
@@ -200,10 +237,11 @@ function syncAllSouls(repoRoot: string, stateDir: string, overlay: PlatformConfi
 export function loadPlatformAgentOverlay(stateDir: string): PlatformConfigOverlay | null {
   const repoRoot = resolveRepoRoot();
   const mtimeKey = buildMtimeKey(repoRoot);
+  const storage = resolveStorageProvider(stateDir);
 
   // Cache hit: overlay structure unchanged, but still re-sync SOUL.md
   if (overlayCache && overlayCache.stateDir === stateDir && overlayCache.mtimeKey === mtimeKey) {
-    syncAllSouls(repoRoot, stateDir, overlayCache.overlay);
+    syncAllSouls(repoRoot, stateDir, overlayCache.overlay, storage);
     return overlayCache.overlay;
   }
 
@@ -228,7 +266,7 @@ export function loadPlatformAgentOverlay(stateDir: string): PlatformConfigOverla
   const defaultIdx = orchestratorIdx >= 0 ? orchestratorIdx : 0;
 
   const agentConfigs = registry.agents.map((entry, idx) =>
-    mapAgentToConfig(entry, stateDir, idx === defaultIdx),
+    mapAgentToConfig(entry, stateDir, idx === defaultIdx, storage),
   );
 
   const primaryAgent = agentConfigs[defaultIdx];
