@@ -37,10 +37,12 @@ import type {
   AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
+  AdminGitHubRepoSummary,
   AdminProjectSummary,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
+  AdminVercelProjectSummary,
 } from "./types-admin.ts";
 import type {
   AgentsListResult,
@@ -282,6 +284,10 @@ export type AppViewState = {
   adminMcpAccess: AdminMcpAccessEntry[] | null;
   adminProjects: AdminProjectSummary[] | null;
   adminProjectsExpandedUserId: string | null;
+  adminGitHubRepos: AdminGitHubRepoSummary[] | null;
+  adminGitHubExpandedUserId: string | null;
+  adminVercelProjects: AdminVercelProjectSummary[] | null;
+  adminVercelExpandedUserId: string | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;

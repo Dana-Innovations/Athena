@@ -44,6 +44,9 @@ export const en: TranslationMap = {
     debug: "Debug",
     logs: "Logs",
     admin: "Admin",
+    supabase: "Supabase",
+    github: "GitHub",
+    vercel: "Vercel",
   },
   subtitles: {
     dashboard: "Your personalized overview of connected services and activity.",
@@ -64,6 +67,9 @@ export const en: TranslationMap = {
     debug: "Gateway snapshots, events, and manual RPC calls.",
     logs: "Live tail of the gateway file logs.",
     admin: "User management, usage analytics, and MCP configuration.",
+    supabase: "Manage user access to Supabase projects.",
+    github: "Manage user access to GitHub repositories.",
+    vercel: "Manage user access to Vercel projects.",
   },
   overview: {
     access: {

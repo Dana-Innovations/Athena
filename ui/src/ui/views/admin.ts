@@ -12,18 +12,16 @@ import type {
   AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
-  AdminProjectSummary,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
 } from "../types-admin.ts";
 import { renderAdminActivityLog } from "./admin-activity-log.ts";
 import { renderAdminMcp } from "./admin-mcp.ts";
-import { renderAdminProjects } from "./admin-projects.ts";
 import { renderAdminUsage } from "./admin-usage.ts";
 import { renderAdminUsers } from "./admin-users.ts";
 
-export type AdminPanelId = "users" | "usage" | "mcp" | "activity" | "projects";
+export type AdminPanelId = "users" | "usage" | "mcp" | "activity";
 
 export type AdminViewProps = {
   loading: boolean;
@@ -35,8 +33,6 @@ export type AdminViewProps = {
   usageDetails: AdminUsageDetail[] | null;
   mcps: AdminMcpInfo[] | null;
   mcpAccess: AdminMcpAccessEntry[] | null;
-  projects: AdminProjectSummary[] | null;
-  projectsExpandedUserId: string | null;
   activityLog: AdminActivityLogResponse | null;
   activityLogLoading: boolean;
   activityFilters: AdminActivityFilters;
@@ -44,11 +40,6 @@ export type AdminViewProps = {
   activityExpandedId: string | null;
   onPanelChange: (panel: AdminPanelId) => void;
   onUsersFilterChange: (filter: string) => void;
-  onProjectGrant: (userId: string, projectRef: string, projectName: string) => void;
-  onProjectRevoke: (userId: string, projectRef: string) => void;
-  onProjectGrantAll: (userId: string) => void;
-  onProjectRevokeAll: (userId: string) => void;
-  onProjectToggleExpand: (userId: string) => void;
   onActivityFilterChange: (key: keyof AdminActivityFilters, value: string | null) => void;
   onActivityPageChange: (page: number) => void;
   onActivityToggleExpand: (id: string) => void;
@@ -59,7 +50,6 @@ const PANELS = [
   { id: "users" as const, label: "Users" },
   { id: "usage" as const, label: "Usage" },
   { id: "mcp" as const, label: "MCP" },
-  { id: "projects" as const, label: "Projects" },
   { id: "activity" as const, label: "Activity" },
 ];
 
@@ -116,21 +106,6 @@ export function renderAdmin(props: AdminViewProps) {
         ? renderAdminMcp({
             mcps: props.mcps,
             mcpAccess: props.mcpAccess,
-          })
-        : nothing
-    }
-
-    ${
-      props.activePanel === "projects"
-        ? renderAdminProjects({
-            projects: props.projects,
-            users: props.users,
-            expandedUserId: props.projectsExpandedUserId,
-            onToggleExpand: props.onProjectToggleExpand,
-            onGrant: props.onProjectGrant,
-            onRevoke: props.onProjectRevoke,
-            onGrantAll: props.onProjectGrantAll,
-            onRevokeAll: props.onProjectRevokeAll,
           })
         : nothing
     }

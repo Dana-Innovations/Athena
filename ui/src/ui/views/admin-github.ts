@@ -1,29 +1,33 @@
 /**
- * Admin Projects Sub-panel
+ * Admin GitHub Sub-panel
  *
- * Displays Supabase project access grouped by user with expandable rows.
- * Admins can grant or revoke user access to specific projects.
+ * Displays GitHub repo access grouped by user with expandable rows.
+ * Admins can grant or revoke user access to specific repositories.
  */
 
 import { html, nothing } from "lit";
-import type { AdminProjectAccessGrant, AdminProjectSummary, AdminUser } from "../types-admin.ts";
+import type {
+  AdminGitHubRepoAccessGrant,
+  AdminGitHubRepoSummary,
+  AdminUser,
+} from "../types-admin.ts";
 
-export type AdminProjectsProps = {
-  projects: AdminProjectSummary[] | null;
+export type AdminGitHubProps = {
+  repos: AdminGitHubRepoSummary[] | null;
   users: AdminUser[] | null;
   expandedUserId: string | null;
   onToggleExpand: (userId: string) => void;
-  onGrant: (userId: string, projectRef: string, projectName: string) => void;
-  onRevoke: (userId: string, projectRef: string) => void;
+  onGrant: (userId: string, repoFullName: string, repoName: string) => void;
+  onRevoke: (userId: string, repoFullName: string) => void;
   onGrantAll: (userId: string) => void;
   onRevokeAll: (userId: string) => void;
 };
 
-type UserProjectGroup = {
+type UserRepoGroup = {
   userId: string;
   email: string;
   displayName: string | null;
-  grants: AdminProjectAccessGrant[];
+  grants: AdminGitHubRepoAccessGrant[];
 };
 
 function formatDate(iso: string | null): string {
@@ -53,12 +57,12 @@ function grantSourcePill(source: string) {
   return html`<span class="pill pill--sm ${cls}">${source || "-"}</span>`;
 }
 
-/** Pivot project-grouped data into user-grouped data. */
-function groupByUser(projects: AdminProjectSummary[]): UserProjectGroup[] {
-  const userMap = new Map<string, UserProjectGroup>();
+/** Pivot repo-grouped data into user-grouped data. */
+function groupByUser(repos: AdminGitHubRepoSummary[]): UserRepoGroup[] {
+  const userMap = new Map<string, UserRepoGroup>();
 
-  for (const project of projects) {
-    for (const grant of project.grants) {
+  for (const repo of repos) {
+    for (const grant of repo.grants) {
       let group = userMap.get(grant.user_id);
       if (!group) {
         group = {
@@ -78,26 +82,26 @@ function groupByUser(projects: AdminProjectSummary[]): UserProjectGroup[] {
   return groups;
 }
 
-export function renderAdminProjects(props: AdminProjectsProps) {
-  const { projects } = props;
+export function renderAdminGitHub(props: AdminGitHubProps) {
+  const { repos } = props;
 
-  if (!projects) {
+  if (!repos) {
     return html`
       <div class="card">
-        <div class="card-body"><span class="muted">No project access data available.</span></div>
+        <div class="card-body"><span class="muted">No GitHub repo access data available.</span></div>
       </div>
     `;
   }
 
-  const userGroups = groupByUser(projects);
-  const allGrants = projects.flatMap((p) => p.grants);
+  const userGroups = groupByUser(repos);
+  const allGrants = repos.flatMap((r) => r.grants);
   const activeGrants = allGrants.filter((g) => g.is_active).length;
   const revokedGrants = allGrants.filter((g) => !g.is_active).length;
-  const uniqueProjects = new Set(projects.map((p) => p.project_ref)).size;
+  const uniqueRepos = new Set(repos.map((r) => r.repo_full_name)).size;
 
   return html`
-    <div class="page-title">Supabase</div>
-    <div class="page-sub">Manage user access to Supabase projects.</div>
+    <div class="page-title">GitHub</div>
+    <div class="page-sub">Manage user access to GitHub repositories.</div>
 
     <div style="display: flex; gap: 12px; margin-bottom: 16px;">
       <div class="card card-compact" style="flex: 1;">
@@ -108,8 +112,8 @@ export function renderAdminProjects(props: AdminProjectsProps) {
       </div>
       <div class="card card-compact" style="flex: 1;">
         <div class="card-body" style="text-align: center;">
-          <div style="font-size: 1.5rem; font-weight: 600;">${uniqueProjects}</div>
-          <div class="muted" style="font-size: 0.8rem;">Projects</div>
+          <div style="font-size: 1.5rem; font-weight: 600;">${uniqueRepos}</div>
+          <div class="muted" style="font-size: 0.8rem;">Repositories</div>
         </div>
       </div>
       <div class="card card-compact" style="flex: 1;">
@@ -134,7 +138,7 @@ export function renderAdminProjects(props: AdminProjectsProps) {
               <th style="width: 24px;"></th>
               <th>Email</th>
               <th>Name</th>
-              <th>Projects</th>
+              <th>Repos</th>
             </tr>
           </thead>
           <tbody>
@@ -148,7 +152,7 @@ export function renderAdminProjects(props: AdminProjectsProps) {
   `;
 }
 
-function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
+function renderUserRow(props: AdminGitHubProps, group: UserRepoGroup) {
   const isExpanded = props.expandedUserId === group.userId;
   const activeCount = group.grants.filter((g) => g.is_active).length;
   const revokedCount = group.grants.length - activeCount;
@@ -180,7 +184,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                       e.stopPropagation();
                       props.onGrantAll(group.userId);
                     }}
-                  >Grant All Projects</button>
+                  >Grant All Repos</button>
                   <button
                     class="btn btn--sm"
                     style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
@@ -193,8 +197,8 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                 <table class="data-table" style="width: 100%; font-size: 0.82rem;">
                   <thead>
                     <tr>
-                      <th>Project Name</th>
-                      <th>Project Ref</th>
+                      <th>Repo Name</th>
+                      <th>Repo Full Name</th>
                       <th>Status</th>
                       <th>Source</th>
                       <th>Granted</th>
@@ -206,12 +210,12 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                       (grant) => html`
                         <tr style="${grant.is_active ? "" : "opacity: 0.5;"}">
                           <td>${
-                            grant.project_name ||
+                            grant.repo_name ||
                             html`
                               <span class="muted">-</span>
                             `
                           }</td>
-                          <td class="mono" style="font-size: 0.8rem;">${grant.project_ref}</td>
+                          <td class="mono" style="font-size: 0.8rem;">${grant.repo_full_name}</td>
                           <td>${
                             grant.is_active
                               ? html`
@@ -231,7 +235,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                                   style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
                                   @click=${(e: Event) => {
                                     e.stopPropagation();
-                                    props.onRevoke(grant.user_id, grant.project_ref);
+                                    props.onRevoke(grant.user_id, grant.repo_full_name);
                                   }}
                                 >Revoke</button>`
                                 : html`<button
@@ -241,8 +245,8 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                                     e.stopPropagation();
                                     props.onGrant(
                                       grant.user_id,
-                                      grant.project_ref,
-                                      grant.project_name || "",
+                                      grant.repo_full_name,
+                                      grant.repo_name || "",
                                     );
                                   }}
                                 >Grant</button>`
@@ -262,7 +266,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
   `;
 }
 
-function renderGrantForm(props: AdminProjectsProps) {
+function renderGrantForm(props: AdminGitHubProps) {
   const { users } = props;
   const activeUsers = (users ?? []).filter((u) => u.status === "active");
 
@@ -276,18 +280,18 @@ function renderGrantForm(props: AdminProjectsProps) {
             e.preventDefault();
             const form = e.target as HTMLFormElement;
             const userId = (form.querySelector("[name=user_id]") as HTMLSelectElement).value;
-            const projectRef = (
-              form.querySelector("[name=project_ref]") as HTMLInputElement
+            const repoFullName = (
+              form.querySelector("[name=repo_full_name]") as HTMLInputElement
             ).value.trim();
-            const projectName = (
-              form.querySelector("[name=project_name]") as HTMLInputElement
+            const repoName = (
+              form.querySelector("[name=repo_name]") as HTMLInputElement
             ).value.trim();
-            if (!userId || !projectRef) {
+            if (!userId || !repoFullName) {
               return;
             }
-            props.onGrant(userId, projectRef, projectName);
-            (form.querySelector("[name=project_ref]") as HTMLInputElement).value = "";
-            (form.querySelector("[name=project_name]") as HTMLInputElement).value = "";
+            props.onGrant(userId, repoFullName, repoName);
+            (form.querySelector("[name=repo_full_name]") as HTMLInputElement).value = "";
+            (form.querySelector("[name=repo_name]") as HTMLInputElement).value = "";
           }}
         >
           <div>
@@ -301,12 +305,12 @@ function renderGrantForm(props: AdminProjectsProps) {
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Project Ref</label>
-            <input name="project_ref" type="text" class="input input--sm" placeholder="e.g. abcdefghijkl" style="min-width: 160px;" required />
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Repo Full Name</label>
+            <input name="repo_full_name" type="text" class="input input--sm" placeholder="e.g. org/repo" style="min-width: 160px;" required />
           </div>
           <div>
-            <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Project Name (optional)</label>
-            <input name="project_name" type="text" class="input input--sm" placeholder="e.g. My Project" style="min-width: 160px;" />
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Repo Name (optional)</label>
+            <input name="repo_name" type="text" class="input input--sm" placeholder="e.g. my-repo" style="min-width: 160px;" />
           </div>
           <button type="submit" class="btn btn--sm" style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);">Grant</button>
         </form>

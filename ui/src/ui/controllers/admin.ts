@@ -9,12 +9,14 @@ import type {
   AdminActivityFilters,
   AdminActivityFilterOptions,
   AdminActivityLogResponse,
+  AdminGitHubRepoSummary,
   AdminMcpAccessEntry,
   AdminMcpInfo,
   AdminProjectSummary,
   AdminUsageDetail,
   AdminUsageSummary,
   AdminUser,
+  AdminVercelProjectSummary,
 } from "../types-admin.ts";
 import {
   loadActivityLog,
@@ -25,7 +27,7 @@ import {
 export type AdminState = {
   adminLoading: boolean;
   adminError: string | null;
-  adminPanel: "users" | "usage" | "mcp" | "activity" | "projects";
+  adminPanel: "users" | "usage" | "mcp" | "activity";
   adminUsers: AdminUser[] | null;
   adminUsersFilter: string;
   adminUsageSummary: AdminUsageSummary | null;
@@ -33,6 +35,8 @@ export type AdminState = {
   adminMcps: AdminMcpInfo[] | null;
   adminMcpAccess: AdminMcpAccessEntry[] | null;
   adminProjects: AdminProjectSummary[] | null;
+  adminGitHubRepos: AdminGitHubRepoSummary[] | null;
+  adminVercelProjects: AdminVercelProjectSummary[] | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;
@@ -189,6 +193,190 @@ export async function grantAllProjectAccess(state: AdminState, userId: string): 
   }
 }
 
+// ── GitHub Repo Access ──────────────────────────────────────────────
+
+export async function loadAdminGitHubRepoAccess(state: AdminState): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  state.adminLoading = true;
+  state.adminError = null;
+  try {
+    const result = (await state.client.request("sonance.admin.github_repo_access")) as {
+      repos: AdminGitHubRepoSummary[];
+      total_grants: number;
+    };
+    state.adminGitHubRepos = result.repos;
+  } catch (err) {
+    state.adminError = `Failed to load GitHub repo access: ${String(err)}`;
+  } finally {
+    state.adminLoading = false;
+  }
+}
+
+export async function grantGitHubRepoAccess(
+  state: AdminState,
+  userId: string,
+  repoFullName: string,
+  repoName: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_github_repo_access", {
+      user_id: userId,
+      repo_full_name: repoFullName,
+      repo_name: repoName,
+    });
+    await loadAdminGitHubRepoAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant GitHub repo access: ${String(err)}`;
+  }
+}
+
+export async function revokeGitHubRepoAccess(
+  state: AdminState,
+  userId: string,
+  repoFullName: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_github_repo_access", {
+      user_id: userId,
+      repo_full_name: repoFullName,
+    });
+    await loadAdminGitHubRepoAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke GitHub repo access: ${String(err)}`;
+  }
+}
+
+export async function revokeAllGitHubRepoAccess(state: AdminState, userId: string): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_all_github_repo_access", {
+      user_id: userId,
+    });
+    await loadAdminGitHubRepoAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke all GitHub repo access: ${String(err)}`;
+  }
+}
+
+export async function grantAllGitHubRepoAccess(state: AdminState, userId: string): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_all_github_repo_access", {
+      user_id: userId,
+    });
+    await loadAdminGitHubRepoAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant all GitHub repo access: ${String(err)}`;
+  }
+}
+
+// ── Vercel Project Access ───────────────────────────────────────────
+
+export async function loadAdminVercelProjectAccess(state: AdminState): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  state.adminLoading = true;
+  state.adminError = null;
+  try {
+    const result = (await state.client.request("sonance.admin.vercel_project_access")) as {
+      projects: AdminVercelProjectSummary[];
+      total_grants: number;
+    };
+    state.adminVercelProjects = result.projects;
+  } catch (err) {
+    state.adminError = `Failed to load Vercel project access: ${String(err)}`;
+  } finally {
+    state.adminLoading = false;
+  }
+}
+
+export async function grantVercelProjectAccess(
+  state: AdminState,
+  userId: string,
+  projectId: string,
+  projectName: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_vercel_project_access", {
+      user_id: userId,
+      project_id: projectId,
+      project_name: projectName,
+    });
+    await loadAdminVercelProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant Vercel project access: ${String(err)}`;
+  }
+}
+
+export async function revokeVercelProjectAccess(
+  state: AdminState,
+  userId: string,
+  projectId: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_vercel_project_access", {
+      user_id: userId,
+      project_id: projectId,
+    });
+    await loadAdminVercelProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke Vercel project access: ${String(err)}`;
+  }
+}
+
+export async function revokeAllVercelProjectAccess(
+  state: AdminState,
+  userId: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_all_vercel_project_access", {
+      user_id: userId,
+    });
+    await loadAdminVercelProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke all Vercel project access: ${String(err)}`;
+  }
+}
+
+export async function grantAllVercelProjectAccess(
+  state: AdminState,
+  userId: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_all_vercel_project_access", {
+      user_id: userId,
+    });
+    await loadAdminVercelProjectAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant all Vercel project access: ${String(err)}`;
+  }
+}
+
 export async function loadAdminData(state: AdminState): Promise<void> {
   switch (state.adminPanel) {
     case "users":
@@ -197,9 +385,6 @@ export async function loadAdminData(state: AdminState): Promise<void> {
       return loadAdminUsage(state);
     case "mcp":
       return loadAdminMcpAccess(state);
-    case "projects":
-      void loadAdminUsers(state);
-      return loadAdminProjectAccess(state);
     case "activity": {
       const host = state as unknown as AdminActivityLogHost;
       void loadActivityLogFilterOptions(host);

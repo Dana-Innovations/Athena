@@ -11,11 +11,23 @@ import {
   type AdminActivityLogHost,
 } from "./controllers/admin-activity-log.ts";
 import {
+  grantAllGitHubRepoAccess,
   grantAllProjectAccess,
+  grantAllVercelProjectAccess,
+  grantGitHubRepoAccess,
   grantProjectAccess,
+  grantVercelProjectAccess,
   loadAdminData,
+  loadAdminGitHubRepoAccess,
+  loadAdminProjectAccess,
+  loadAdminUsers,
+  loadAdminVercelProjectAccess,
+  revokeAllGitHubRepoAccess,
   revokeAllProjectAccess,
+  revokeAllVercelProjectAccess,
+  revokeGitHubRepoAccess,
   revokeProjectAccess,
+  revokeVercelProjectAccess,
   type AdminState,
 } from "./controllers/admin.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
@@ -94,6 +106,9 @@ import {
 } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
 import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab } from "./navigation.ts";
+import { renderAdminGitHub } from "./views/admin-github.ts";
+import { renderAdminProjects } from "./views/admin-projects.ts";
+import { renderAdminVercel } from "./views/admin-vercel.ts";
 import { renderAdmin } from "./views/admin.ts";
 import { renderAgents } from "./views/agents.ts";
 import { renderApollo } from "./views/apollo.ts";
@@ -646,8 +661,6 @@ export function renderApp(state: AppViewState) {
                 usageDetails: state.adminUsageDetails,
                 mcps: state.adminMcps,
                 mcpAccess: state.adminMcpAccess,
-                projects: state.adminProjects,
-                projectsExpandedUserId: state.adminProjectsExpandedUserId,
                 activityLog: state.adminActivityLog,
                 activityLogLoading: state.adminActivityLogLoading,
                 activityFilters: state.adminActivityFilters,
@@ -659,27 +672,6 @@ export function renderApp(state: AppViewState) {
                 },
                 onUsersFilterChange: (filter) => {
                   state.adminUsersFilter = filter;
-                },
-                onProjectGrant: (userId, projectRef, projectName) => {
-                  void grantProjectAccess(
-                    state as unknown as AdminState,
-                    userId,
-                    projectRef,
-                    projectName,
-                  );
-                },
-                onProjectRevoke: (userId, projectRef) => {
-                  void revokeProjectAccess(state as unknown as AdminState, userId, projectRef);
-                },
-                onProjectGrantAll: (userId) => {
-                  void grantAllProjectAccess(state as unknown as AdminState, userId);
-                },
-                onProjectRevokeAll: (userId) => {
-                  void revokeAllProjectAccess(state as unknown as AdminState, userId);
-                },
-                onProjectToggleExpand: (userId) => {
-                  state.adminProjectsExpandedUserId =
-                    state.adminProjectsExpandedUserId === userId ? null : userId;
                 },
                 onActivityFilterChange: (key, value) => {
                   applyActivityLogFilter(state as unknown as AdminActivityLogHost, key, value);
@@ -694,6 +686,105 @@ export function renderApp(state: AppViewState) {
                   void loadAdminData(state as unknown as AdminState);
                 },
               })
+            : nothing
+        }
+
+        ${
+          state.tab === "supabase"
+            ? (() => {
+                const adminState = state as unknown as AdminState;
+                if (!state.adminProjects) {
+                  void loadAdminProjectAccess(adminState);
+                  void loadAdminUsers(adminState);
+                }
+                return renderAdminProjects({
+                  projects: state.adminProjects,
+                  users: state.adminUsers,
+                  expandedUserId: state.adminProjectsExpandedUserId,
+                  onToggleExpand: (userId) => {
+                    state.adminProjectsExpandedUserId =
+                      state.adminProjectsExpandedUserId === userId ? null : userId;
+                  },
+                  onGrant: (userId, projectRef, projectName) => {
+                    void grantProjectAccess(adminState, userId, projectRef, projectName);
+                  },
+                  onRevoke: (userId, projectRef) => {
+                    void revokeProjectAccess(adminState, userId, projectRef);
+                  },
+                  onGrantAll: (userId) => {
+                    void grantAllProjectAccess(adminState, userId);
+                  },
+                  onRevokeAll: (userId) => {
+                    void revokeAllProjectAccess(adminState, userId);
+                  },
+                });
+              })()
+            : nothing
+        }
+
+        ${
+          state.tab === "github"
+            ? (() => {
+                const adminState = state as unknown as AdminState;
+                if (!state.adminGitHubRepos) {
+                  void loadAdminGitHubRepoAccess(adminState);
+                  void loadAdminUsers(adminState);
+                }
+                return renderAdminGitHub({
+                  repos: state.adminGitHubRepos,
+                  users: state.adminUsers,
+                  expandedUserId: state.adminGitHubExpandedUserId,
+                  onToggleExpand: (userId) => {
+                    state.adminGitHubExpandedUserId =
+                      state.adminGitHubExpandedUserId === userId ? null : userId;
+                  },
+                  onGrant: (userId, repoFullName, repoName) => {
+                    void grantGitHubRepoAccess(adminState, userId, repoFullName, repoName);
+                  },
+                  onRevoke: (userId, repoFullName) => {
+                    void revokeGitHubRepoAccess(adminState, userId, repoFullName);
+                  },
+                  onGrantAll: (userId) => {
+                    void grantAllGitHubRepoAccess(adminState, userId);
+                  },
+                  onRevokeAll: (userId) => {
+                    void revokeAllGitHubRepoAccess(adminState, userId);
+                  },
+                });
+              })()
+            : nothing
+        }
+
+        ${
+          state.tab === "vercel"
+            ? (() => {
+                const adminState = state as unknown as AdminState;
+                if (!state.adminVercelProjects) {
+                  void loadAdminVercelProjectAccess(adminState);
+                  void loadAdminUsers(adminState);
+                }
+                return renderAdminVercel({
+                  projects: state.adminVercelProjects,
+                  users: state.adminUsers,
+                  expandedUserId: state.adminVercelExpandedUserId,
+                  onToggleExpand: (userId) => {
+                    state.adminVercelExpandedUserId =
+                      state.adminVercelExpandedUserId === userId ? null : userId;
+                  },
+                  onGrant: (userId, projectId, projectName) => {
+                    void grantVercelProjectAccess(adminState, userId, projectId, projectName);
+                  },
+                  onRevoke: (userId, projectId) => {
+                    void revokeVercelProjectAccess(adminState, userId, projectId);
+                  },
+                  onGrantAll: (userId) => {
+                    void grantAllVercelProjectAccess(adminState, userId);
+                  },
+                  onRevokeAll: (userId) => {
+                    void revokeAllVercelProjectAccess(adminState, userId);
+                  },
+                });
+              })()
             : nothing
         }
 
