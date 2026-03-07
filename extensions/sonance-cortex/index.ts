@@ -635,6 +635,177 @@ const cortexPlugin = {
       },
     );
 
+    // ── GitHub repo access (admin) ──────────────────────────────────────
+
+    api.registerGatewayMethod("sonance.admin.github_repo_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminGitHubRepoAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_github_repo_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const repo_full_name =
+          typeof params?.repo_full_name === "string" ? params.repo_full_name.trim() : "";
+        const repo_name = typeof params?.repo_name === "string" ? params.repo_name.trim() : "";
+        if (!user_id || !repo_full_name) {
+          respond(false, { error: "user_id and repo_full_name are required" });
+          return;
+        }
+        try {
+          const result = await client.grantGitHubRepoAccess({ user_id, repo_full_name, repo_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_github_repo_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const repo_full_name =
+          typeof params?.repo_full_name === "string" ? params.repo_full_name.trim() : "";
+        if (!user_id || !repo_full_name) {
+          respond(false, { error: "user_id and repo_full_name are required" });
+          return;
+        }
+        try {
+          const result = await client.revokeGitHubRepoAccess({ user_id, repo_full_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_all_github_repo_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        if (!user_id) {
+          respond(false, { error: "user_id is required" });
+          return;
+        }
+        try {
+          const result = await client.revokeAllGitHubRepoAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_all_github_repo_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        if (!user_id) {
+          respond(false, { error: "user_id is required" });
+          return;
+        }
+        try {
+          const result = await client.grantAllGitHubRepoAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    // ── Vercel project access (admin) ─────────────────────────────────────
+
+    api.registerGatewayMethod("sonance.admin.vercel_project_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminVercelProjectAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_vercel_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const project_id = typeof params?.project_id === "string" ? params.project_id.trim() : "";
+        const project_name =
+          typeof params?.project_name === "string" ? params.project_name.trim() : "";
+        if (!user_id || !project_id) {
+          respond(false, { error: "user_id and project_id are required" });
+          return;
+        }
+        try {
+          const result = await client.grantVercelProjectAccess({
+            user_id,
+            project_id,
+            project_name,
+          });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_vercel_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const project_id = typeof params?.project_id === "string" ? params.project_id.trim() : "";
+        if (!user_id || !project_id) {
+          respond(false, { error: "user_id and project_id are required" });
+          return;
+        }
+        try {
+          const result = await client.revokeVercelProjectAccess({ user_id, project_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_all_vercel_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        if (!user_id) {
+          respond(false, { error: "user_id is required" });
+          return;
+        }
+        try {
+          const result = await client.revokeAllVercelProjectAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_all_vercel_project_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        if (!user_id) {
+          respond(false, { error: "user_id is required" });
+          return;
+        }
+        try {
+          const result = await client.grantAllVercelProjectAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
     api.registerGatewayMethod("sonance.skills.update_settings", async ({ params, respond }) => {
       const skillName = typeof params?.skillName === "string" ? params.skillName.trim() : "";
       if (!skillName) {

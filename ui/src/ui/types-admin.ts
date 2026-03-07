@@ -137,3 +137,47 @@ export type AdminProjectSummary = {
   user_count: number;
   grants: AdminProjectAccessGrant[];
 };
+
+export type AdminGitHubRepoAccessGrant = {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  repo_full_name: string;
+  repo_name: string | null;
+  grant_source: string;
+  granted_by: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+  revoked_at: string | null;
+};
+
+export type AdminGitHubRepoSummary = {
+  repo_full_name: string;
+  repo_name: string | null;
+  user_count: number;
+  grants: AdminGitHubRepoAccessGrant[];
+};
+
+export type AdminVercelProjectAccessGrant = {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  project_id: string;
+  project_name: string | null;
+  grant_source: string;
+  granted_by: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+  revoked_at: string | null;
+};
+
+export type AdminVercelProjectSummary = {
+  project_id: string;
+  project_name: string | null;
+  user_count: number;
+  grants: AdminVercelProjectAccessGrant[];
+};

@@ -1,20 +1,24 @@
 /**
- * Admin Projects Sub-panel
+ * Admin Vercel Sub-panel
  *
- * Displays Supabase project access grouped by user with expandable rows.
+ * Displays Vercel project access grouped by user with expandable rows.
  * Admins can grant or revoke user access to specific projects.
  */
 
 import { html, nothing } from "lit";
-import type { AdminProjectAccessGrant, AdminProjectSummary, AdminUser } from "../types-admin.ts";
+import type {
+  AdminVercelProjectAccessGrant,
+  AdminVercelProjectSummary,
+  AdminUser,
+} from "../types-admin.ts";
 
-export type AdminProjectsProps = {
-  projects: AdminProjectSummary[] | null;
+export type AdminVercelProps = {
+  projects: AdminVercelProjectSummary[] | null;
   users: AdminUser[] | null;
   expandedUserId: string | null;
   onToggleExpand: (userId: string) => void;
-  onGrant: (userId: string, projectRef: string, projectName: string) => void;
-  onRevoke: (userId: string, projectRef: string) => void;
+  onGrant: (userId: string, projectId: string, projectName: string) => void;
+  onRevoke: (userId: string, projectId: string) => void;
   onGrantAll: (userId: string) => void;
   onRevokeAll: (userId: string) => void;
 };
@@ -23,7 +27,7 @@ type UserProjectGroup = {
   userId: string;
   email: string;
   displayName: string | null;
-  grants: AdminProjectAccessGrant[];
+  grants: AdminVercelProjectAccessGrant[];
 };
 
 function formatDate(iso: string | null): string {
@@ -54,7 +58,7 @@ function grantSourcePill(source: string) {
 }
 
 /** Pivot project-grouped data into user-grouped data. */
-function groupByUser(projects: AdminProjectSummary[]): UserProjectGroup[] {
+function groupByUser(projects: AdminVercelProjectSummary[]): UserProjectGroup[] {
   const userMap = new Map<string, UserProjectGroup>();
 
   for (const project of projects) {
@@ -78,13 +82,13 @@ function groupByUser(projects: AdminProjectSummary[]): UserProjectGroup[] {
   return groups;
 }
 
-export function renderAdminProjects(props: AdminProjectsProps) {
+export function renderAdminVercel(props: AdminVercelProps) {
   const { projects } = props;
 
   if (!projects) {
     return html`
       <div class="card">
-        <div class="card-body"><span class="muted">No project access data available.</span></div>
+        <div class="card-body"><span class="muted">No Vercel project access data available.</span></div>
       </div>
     `;
   }
@@ -93,11 +97,11 @@ export function renderAdminProjects(props: AdminProjectsProps) {
   const allGrants = projects.flatMap((p) => p.grants);
   const activeGrants = allGrants.filter((g) => g.is_active).length;
   const revokedGrants = allGrants.filter((g) => !g.is_active).length;
-  const uniqueProjects = new Set(projects.map((p) => p.project_ref)).size;
+  const uniqueProjects = new Set(projects.map((p) => p.project_id)).size;
 
   return html`
-    <div class="page-title">Supabase</div>
-    <div class="page-sub">Manage user access to Supabase projects.</div>
+    <div class="page-title">Vercel</div>
+    <div class="page-sub">Manage user access to Vercel projects.</div>
 
     <div style="display: flex; gap: 12px; margin-bottom: 16px;">
       <div class="card card-compact" style="flex: 1;">
@@ -148,7 +152,7 @@ export function renderAdminProjects(props: AdminProjectsProps) {
   `;
 }
 
-function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
+function renderUserRow(props: AdminVercelProps, group: UserProjectGroup) {
   const isExpanded = props.expandedUserId === group.userId;
   const activeCount = group.grants.filter((g) => g.is_active).length;
   const revokedCount = group.grants.length - activeCount;
@@ -194,7 +198,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                   <thead>
                     <tr>
                       <th>Project Name</th>
-                      <th>Project Ref</th>
+                      <th>Project ID</th>
                       <th>Status</th>
                       <th>Source</th>
                       <th>Granted</th>
@@ -211,7 +215,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                               <span class="muted">-</span>
                             `
                           }</td>
-                          <td class="mono" style="font-size: 0.8rem;">${grant.project_ref}</td>
+                          <td class="mono" style="font-size: 0.8rem;">${grant.project_id}</td>
                           <td>${
                             grant.is_active
                               ? html`
@@ -231,7 +235,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                                   style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
                                   @click=${(e: Event) => {
                                     e.stopPropagation();
-                                    props.onRevoke(grant.user_id, grant.project_ref);
+                                    props.onRevoke(grant.user_id, grant.project_id);
                                   }}
                                 >Revoke</button>`
                                 : html`<button
@@ -241,7 +245,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
                                     e.stopPropagation();
                                     props.onGrant(
                                       grant.user_id,
-                                      grant.project_ref,
+                                      grant.project_id,
                                       grant.project_name || "",
                                     );
                                   }}
@@ -262,7 +266,7 @@ function renderUserRow(props: AdminProjectsProps, group: UserProjectGroup) {
   `;
 }
 
-function renderGrantForm(props: AdminProjectsProps) {
+function renderGrantForm(props: AdminVercelProps) {
   const { users } = props;
   const activeUsers = (users ?? []).filter((u) => u.status === "active");
 
@@ -276,17 +280,17 @@ function renderGrantForm(props: AdminProjectsProps) {
             e.preventDefault();
             const form = e.target as HTMLFormElement;
             const userId = (form.querySelector("[name=user_id]") as HTMLSelectElement).value;
-            const projectRef = (
-              form.querySelector("[name=project_ref]") as HTMLInputElement
+            const projectId = (
+              form.querySelector("[name=project_id]") as HTMLInputElement
             ).value.trim();
             const projectName = (
               form.querySelector("[name=project_name]") as HTMLInputElement
             ).value.trim();
-            if (!userId || !projectRef) {
+            if (!userId || !projectId) {
               return;
             }
-            props.onGrant(userId, projectRef, projectName);
-            (form.querySelector("[name=project_ref]") as HTMLInputElement).value = "";
+            props.onGrant(userId, projectId, projectName);
+            (form.querySelector("[name=project_id]") as HTMLInputElement).value = "";
             (form.querySelector("[name=project_name]") as HTMLInputElement).value = "";
           }}
         >
@@ -301,12 +305,12 @@ function renderGrantForm(props: AdminProjectsProps) {
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Project Ref</label>
-            <input name="project_ref" type="text" class="input input--sm" placeholder="e.g. abcdefghijkl" style="min-width: 160px;" required />
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Project ID</label>
+            <input name="project_id" type="text" class="input input--sm" placeholder="e.g. prj_abc123" style="min-width: 160px;" required />
           </div>
           <div>
             <label style="display: block; font-size: 0.8rem; margin-bottom: 4px;" class="muted">Project Name (optional)</label>
-            <input name="project_name" type="text" class="input input--sm" placeholder="e.g. My Project" style="min-width: 160px;" />
+            <input name="project_name" type="text" class="input input--sm" placeholder="e.g. My App" style="min-width: 160px;" />
           </div>
           <button type="submit" class="btn btn--sm" style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);">Grant</button>
         </form>

@@ -850,6 +850,144 @@ export class CortexClient {
     });
   }
 
+  // ── Admin: GitHub repo access ────────────────────────────────────────
+
+  /** Get GitHub repo access matrix (admin-only). */
+  async getAdminGitHubRepoAccess(): Promise<{
+    repos: Array<{
+      repo_full_name: string;
+      repo_name: string | null;
+      user_count: number;
+      grants: Array<{
+        id: string;
+        user_id: string;
+        email: string;
+        display_name: string | null;
+        repo_full_name: string;
+        repo_name: string | null;
+        grant_source: string;
+        granted_by: string | null;
+        created_at: string | null;
+        expires_at: string | null;
+      }>;
+    }>;
+    total_grants: number;
+  }> {
+    return this.request("/api/v1/admin/github-repo-access");
+  }
+
+  /** Grant a user access to a GitHub repo (admin-only). */
+  async grantGitHubRepoAccess(params: {
+    user_id: string;
+    repo_full_name: string;
+    repo_name?: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/github-repo-access/grant", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  /** Revoke a user's access to a GitHub repo (admin-only). */
+  async revokeGitHubRepoAccess(params: {
+    user_id: string;
+    repo_full_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/github-repo-access/revoke?user_id=${encodeURIComponent(params.user_id)}&repo_full_name=${encodeURIComponent(params.repo_full_name)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Revoke all GitHub repo access for a user (admin-only). */
+  async revokeAllGitHubRepoAccess(params: {
+    user_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/github-repo-access/revoke-all?user_id=${encodeURIComponent(params.user_id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Grant a user access to all known GitHub repos (admin-only). */
+  async grantAllGitHubRepoAccess(params: {
+    user_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/github-repo-access/grant-all", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  // ── Admin: Vercel project access ─────────────────────────────────────
+
+  /** Get Vercel project access matrix (admin-only). */
+  async getAdminVercelProjectAccess(): Promise<{
+    projects: Array<{
+      project_id: string;
+      project_name: string | null;
+      user_count: number;
+      grants: Array<{
+        id: string;
+        user_id: string;
+        email: string;
+        display_name: string | null;
+        project_id: string;
+        project_name: string | null;
+        grant_source: string;
+        granted_by: string | null;
+        created_at: string | null;
+        expires_at: string | null;
+      }>;
+    }>;
+    total_grants: number;
+  }> {
+    return this.request("/api/v1/admin/vercel-project-access");
+  }
+
+  /** Grant a user access to a Vercel project (admin-only). */
+  async grantVercelProjectAccess(params: {
+    user_id: string;
+    project_id: string;
+    project_name?: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/vercel-project-access/grant", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  /** Revoke a user's access to a Vercel project (admin-only). */
+  async revokeVercelProjectAccess(params: {
+    user_id: string;
+    project_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/vercel-project-access/revoke?user_id=${encodeURIComponent(params.user_id)}&project_id=${encodeURIComponent(params.project_id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Revoke all Vercel project access for a user (admin-only). */
+  async revokeAllVercelProjectAccess(params: {
+    user_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/vercel-project-access/revoke-all?user_id=${encodeURIComponent(params.user_id)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Grant a user access to all known Vercel projects (admin-only). */
+  async grantAllVercelProjectAccess(params: {
+    user_id: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/vercel-project-access/grant-all", {
+      method: "POST",
+      body: params,
+    });
+  }
+
   /** Fetch the LLM-ready skills prompt for system prompt injection. */
   async getSkillsPrompt(params?: {
     minPriority?: string;
