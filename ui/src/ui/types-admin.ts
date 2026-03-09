@@ -181,3 +181,22 @@ export type AdminVercelProjectSummary = {
   user_count: number;
   grants: AdminVercelProjectAccessGrant[];
 };
+
+export type AdminDatabricksCatalogAccessGrant = {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  catalog_name: string;
+  grant_source: string;
+  granted_by: string | null;
+  created_at: string | null;
+  is_active: boolean;
+  revoked_at: string | null;
+};
+
+export type AdminDatabricksCatalogSummary = {
+  catalog_name: string;
+  user_count: number;
+  grants: AdminDatabricksCatalogAccessGrant[];
+};

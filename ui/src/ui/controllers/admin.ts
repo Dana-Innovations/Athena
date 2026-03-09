@@ -9,6 +9,7 @@ import type {
   AdminActivityFilters,
   AdminActivityFilterOptions,
   AdminActivityLogResponse,
+  AdminDatabricksCatalogSummary,
   AdminGitHubRepoSummary,
   AdminMcpAccessEntry,
   AdminMcpInfo,
@@ -37,6 +38,7 @@ export type AdminState = {
   adminProjects: AdminProjectSummary[] | null;
   adminGitHubRepos: AdminGitHubRepoSummary[] | null;
   adminVercelProjects: AdminVercelProjectSummary[] | null;
+  adminDatabricksCatalogs: AdminDatabricksCatalogSummary[] | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;
@@ -374,6 +376,65 @@ export async function grantAllVercelProjectAccess(
     await loadAdminVercelProjectAccess(state);
   } catch (err) {
     state.adminError = `Failed to grant all Vercel project access: ${String(err)}`;
+  }
+}
+
+// ── Databricks Catalog Access ────────────────────────────────────────
+
+export async function loadAdminDatabricksAccess(state: AdminState): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  state.adminLoading = true;
+  state.adminError = null;
+  try {
+    const result = (await state.client.request("sonance.admin.databricks_access")) as {
+      catalogs: AdminDatabricksCatalogSummary[];
+      total_grants: number;
+    };
+    state.adminDatabricksCatalogs = result.catalogs;
+  } catch (err) {
+    state.adminError = `Failed to load Databricks catalog access: ${String(err)}`;
+  } finally {
+    state.adminLoading = false;
+  }
+}
+
+export async function grantDatabricksAccess(
+  state: AdminState,
+  userId: string,
+  catalogName: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.grant_databricks_access", {
+      user_id: userId,
+      catalog_name: catalogName,
+    });
+    await loadAdminDatabricksAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to grant Databricks catalog access: ${String(err)}`;
+  }
+}
+
+export async function revokeDatabricksAccess(
+  state: AdminState,
+  userId: string,
+  catalogName: string,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  try {
+    await state.client.request("sonance.admin.revoke_databricks_access", {
+      user_id: userId,
+      catalog_name: catalogName,
+    });
+    await loadAdminDatabricksAccess(state);
+  } catch (err) {
+    state.adminError = `Failed to revoke Databricks catalog access: ${String(err)}`;
   }
 }
 

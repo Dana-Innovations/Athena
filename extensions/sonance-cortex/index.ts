@@ -806,6 +806,55 @@ const cortexPlugin = {
       },
     );
 
+    // ── Databricks catalog access (admin) ───────────────────────────────
+
+    api.registerGatewayMethod("sonance.admin.databricks_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminDatabricksAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_databricks_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const catalog_name =
+          typeof params?.catalog_name === "string" ? params.catalog_name.trim() : "";
+        if (!user_id || !catalog_name) {
+          respond(false, { error: "user_id and catalog_name are required" });
+          return;
+        }
+        try {
+          const result = await client.grantDatabricksAccess({ user_id, catalog_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_databricks_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const catalog_name =
+          typeof params?.catalog_name === "string" ? params.catalog_name.trim() : "";
+        if (!user_id || !catalog_name) {
+          respond(false, { error: "user_id and catalog_name are required" });
+          return;
+        }
+        try {
+          const result = await client.revokeDatabricksAccess({ user_id, catalog_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
     api.registerGatewayMethod("sonance.skills.update_settings", async ({ params, respond }) => {
       const skillName = typeof params?.skillName === "string" ? params.skillName.trim() : "";
       if (!skillName) {

@@ -8,5 +8,5 @@
   "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5bHF3aHVpdXFibGpwbnBrZGx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5ODc3MzgsImV4cCI6MjA4MzU2MzczOH0._uXqC_jqQ5jpNxhAHlJtMUg0UTs-mcHoQskE6JzxR_M",
   "aiIntranetUrl": "https://aiintranet.sonance.com",
   "appId": "1b9007a0-dfd2-473b-9e94-96b397d50b02",
-  "gatewayUrl": "wss://athena-cortex.fly.dev"
+  "gatewayUrl": "wss://cortex.sonance.com"
 }

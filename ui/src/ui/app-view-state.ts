@@ -37,6 +37,7 @@ import type {
   AdminActivityLogResponse,
   AdminMcpAccessEntry,
   AdminMcpInfo,
+  AdminDatabricksCatalogSummary,
   AdminGitHubRepoSummary,
   AdminProjectSummary,
   AdminUsageDetail,
@@ -288,6 +289,8 @@ export type AppViewState = {
   adminGitHubExpandedUserId: string | null;
   adminVercelProjects: AdminVercelProjectSummary[] | null;
   adminVercelExpandedUserId: string | null;
+  adminDatabricksCatalogs: AdminDatabricksCatalogSummary[] | null;
+  adminDatabricksExpandedUserId: string | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;

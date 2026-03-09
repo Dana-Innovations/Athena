@@ -373,6 +373,10 @@ export class OpenClawApp extends LitElement {
   @state() adminVercelProjects: import("./types-admin.js").AdminVercelProjectSummary[] | null =
     null;
   @state() adminVercelExpandedUserId: string | null = null;
+  @state() adminDatabricksCatalogs:
+    | import("./types-admin.js").AdminDatabricksCatalogSummary[]
+    | null = null;
+  @state() adminDatabricksExpandedUserId: string | null = null;
   @state() adminActivityLog: import("./types-admin.js").AdminActivityLogResponse | null = null;
   @state() adminActivityLogLoading = false;
   @state() adminActivityFilters: import("./types-admin.js").AdminActivityFilters = {

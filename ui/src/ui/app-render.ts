@@ -14,14 +14,17 @@ import {
   grantAllGitHubRepoAccess,
   grantAllProjectAccess,
   grantAllVercelProjectAccess,
+  grantDatabricksAccess,
   grantGitHubRepoAccess,
   grantProjectAccess,
   grantVercelProjectAccess,
   loadAdminData,
+  loadAdminDatabricksAccess,
   loadAdminGitHubRepoAccess,
   loadAdminProjectAccess,
   loadAdminUsers,
   loadAdminVercelProjectAccess,
+  revokeDatabricksAccess,
   revokeAllGitHubRepoAccess,
   revokeAllProjectAccess,
   revokeAllVercelProjectAccess,
@@ -106,6 +109,7 @@ import {
 } from "./controllers/upstream-sync.ts";
 import { icons } from "./icons.ts";
 import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab } from "./navigation.ts";
+import { renderAdminDatabricks } from "./views/admin-databricks.ts";
 import { renderAdminGitHub } from "./views/admin-github.ts";
 import { renderAdminProjects } from "./views/admin-projects.ts";
 import { renderAdminVercel } from "./views/admin-vercel.ts";
@@ -782,6 +786,33 @@ export function renderApp(state: AppViewState) {
                   },
                   onRevokeAll: (userId) => {
                     void revokeAllVercelProjectAccess(adminState, userId);
+                  },
+                });
+              })()
+            : nothing
+        }
+
+        ${
+          state.tab === "databricks"
+            ? (() => {
+                const adminState = state as unknown as AdminState;
+                if (!state.adminDatabricksCatalogs) {
+                  void loadAdminDatabricksAccess(adminState);
+                  void loadAdminUsers(adminState);
+                }
+                return renderAdminDatabricks({
+                  catalogs: state.adminDatabricksCatalogs,
+                  users: state.adminUsers,
+                  expandedUserId: state.adminDatabricksExpandedUserId,
+                  onToggleExpand: (userId) => {
+                    state.adminDatabricksExpandedUserId =
+                      state.adminDatabricksExpandedUserId === userId ? null : userId;
+                  },
+                  onGrant: (userId, catalogName) => {
+                    void grantDatabricksAccess(adminState, userId, catalogName);
+                  },
+                  onRevoke: (userId, catalogName) => {
+                    void revokeDatabricksAccess(adminState, userId, catalogName);
                   },
                 });
               })()

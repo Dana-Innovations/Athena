@@ -55,6 +55,7 @@ export type CortexAuditPayload = {
     success: boolean;
     error?: string;
     blocked?: boolean;
+    keySource?: string;
   }>;
 };
 
@@ -804,7 +805,7 @@ export class CortexClient {
     }>;
     total_grants: number;
   }> {
-    return this.request("/api/v1/admin/project-access");
+    return this.request("/api/v1/admin/project-access", { timeoutMs: 30_000 });
   }
 
   /** Grant a user access to a Supabase project (admin-only). */
@@ -873,7 +874,7 @@ export class CortexClient {
     }>;
     total_grants: number;
   }> {
-    return this.request("/api/v1/admin/github-repo-access");
+    return this.request("/api/v1/admin/github-repo-access", { timeoutMs: 30_000 });
   }
 
   /** Grant a user access to a GitHub repo (admin-only). */
@@ -942,7 +943,7 @@ export class CortexClient {
     }>;
     total_grants: number;
   }> {
-    return this.request("/api/v1/admin/vercel-project-access");
+    return this.request("/api/v1/admin/vercel-project-access", { timeoutMs: 30_000 });
   }
 
   /** Grant a user access to a Vercel project (admin-only). */
@@ -986,6 +987,53 @@ export class CortexClient {
       method: "POST",
       body: params,
     });
+  }
+
+  // ── Admin: Databricks catalog access ──────────────────────────────
+
+  /** Get Databricks catalog access matrix (admin-only). */
+  async getAdminDatabricksAccess(): Promise<{
+    catalogs: Array<{
+      catalog_name: string;
+      user_count: number;
+      grants: Array<{
+        id: string;
+        user_id: string;
+        email: string;
+        display_name: string | null;
+        catalog_name: string;
+        grant_source: string;
+        granted_by: string | null;
+        created_at: string | null;
+        is_active: boolean;
+        revoked_at: string | null;
+      }>;
+    }>;
+    total_grants: number;
+  }> {
+    return this.request("/api/v1/admin/databricks-access", { timeoutMs: 30_000 });
+  }
+
+  /** Grant a user access to a Databricks catalog (admin-only). */
+  async grantDatabricksAccess(params: {
+    user_id: string;
+    catalog_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/databricks-access/grant", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  /** Revoke a user's access to a Databricks catalog (admin-only). */
+  async revokeDatabricksAccess(params: {
+    user_id: string;
+    catalog_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/databricks-access/revoke?user_id=${encodeURIComponent(params.user_id)}&catalog_name=${encodeURIComponent(params.catalog_name)}`,
+      { method: "DELETE" },
+    );
   }
 
   /** Fetch the LLM-ready skills prompt for system prompt injection. */
