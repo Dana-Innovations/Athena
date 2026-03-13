@@ -408,6 +408,47 @@ const MCPS: McpEntry[] = [
       { name: "search_stores", desc: "Find store locations", category: "read" },
     ],
   },
+  {
+    id: "databricks",
+    name: "Databricks",
+    icon: "\u{1F9F1}",
+    tools: 18,
+    auth: "default",
+    connectCmd: null,
+    description: "Unity Catalog discovery, SQL queries, job management, and data dictionary",
+    toolList: [
+      { name: "list_catalogs", desc: "List all Unity Catalog catalogs", category: "read" },
+      { name: "list_schemas", desc: "List schemas within a catalog", category: "read" },
+      { name: "list_tables", desc: "List tables and views within a schema", category: "read" },
+      { name: "describe_table", desc: "Get table metadata, columns, and types", category: "read" },
+      { name: "search_tables", desc: "Search tables by keyword across catalogs", category: "read" },
+      { name: "get_table_sample", desc: "Preview sample rows from a table", category: "read" },
+      { name: "execute_query", desc: "Execute a SQL SELECT query", category: "read" },
+      { name: "explain_query", desc: "Get the execution plan for a query", category: "read" },
+      { name: "validate_query", desc: "Check SQL syntax without executing", category: "read" },
+      {
+        name: "execute_write_query",
+        desc: "Execute INSERT/UPDATE/DELETE/MERGE",
+        category: "write",
+      },
+      { name: "create_view", desc: "Create or replace a Unity Catalog view", category: "write" },
+      { name: "list_jobs", desc: "List Databricks jobs", category: "read" },
+      { name: "get_job_status", desc: "Get job definition and latest status", category: "read" },
+      { name: "trigger_job", desc: "Trigger a Databricks job run", category: "write" },
+      { name: "get_run_output", desc: "Get output of a completed job run", category: "read" },
+      { name: "list_warehouses", desc: "List SQL warehouses and their status", category: "read" },
+      {
+        name: "get_warehouse_status",
+        desc: "Get details of a specific warehouse",
+        category: "read",
+      },
+      {
+        name: "get_data_dictionary",
+        desc: "Get structured metadata for a data domain",
+        category: "read",
+      },
+    ],
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -487,6 +528,7 @@ const MCP_DISPLAY_NAMES: Record<string, string> = {
   monday: "Monday.com",
   mailchimp: "Mailchimp",
   bestbuy: "Best Buy",
+  microsoft365: "Microsoft 365",
 };
 
 function formatNumber(n: number): string {
@@ -1150,7 +1192,7 @@ export function renderLanding(state: AppViewState) {
         <!-- ===== MCP Grid ===== -->
         <section class="landing-section">
           <p class="landing-section__eyebrow">Integrations</p>
-          <h2 class="landing-section__title">11 MCPs, 240+ Tools</h2>
+          <h2 class="landing-section__title">12 MCPs, 258+ Tools</h2>
           <p class="landing-section__subtitle">
             From project management to CRM to email marketing \u2014 every tool is available through a single proxy with unified authentication.
           </p>

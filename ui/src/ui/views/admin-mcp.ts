@@ -1,16 +1,25 @@
 /**
  * Admin MCP Sub-panel
  *
- * Shows available MCPs, per-user access matrix, and setup instructions
- * with copyable CLI commands.
+ * Shows available MCPs, per-user access matrix with toggle buttons,
+ * seed controls, and setup instructions with copyable CLI commands.
  */
 
 import { html, nothing } from "lit";
-import type { AdminMcpAccessEntry, AdminMcpInfo } from "../types-admin.ts";
+import type {
+  AdminMcpAccessEntry,
+  AdminMcpInfo,
+  AdminMcpUserAccessSummary,
+} from "../types-admin.ts";
 
 export type AdminMcpProps = {
   mcps: AdminMcpInfo[] | null;
   mcpAccess: AdminMcpAccessEntry[] | null;
+  mcpUserAccess: AdminMcpUserAccessSummary[] | null;
+  onGrant: (userId: string, mcpName: string) => void;
+  onRevoke: (userId: string, mcpName: string) => void;
+  onSeed: () => void;
+  loading?: boolean;
 };
 
 const NPX = "npx @danainnovations/cortex-mcp@latest";
@@ -109,8 +118,8 @@ function renderAvailableMcps(mcps: AdminMcpInfo[] | null) {
           {
             name: "m365",
             displayName: "Microsoft 365",
-            toolCount: 11,
-            description: "Email, calendar, OneDrive, Teams, meetings",
+            toolCount: 39,
+            description: "Email, calendar, OneDrive, SharePoint, Teams",
             authMode: "personal_oauth",
           },
           {
@@ -140,6 +149,34 @@ function renderAvailableMcps(mcps: AdminMcpInfo[] | null) {
             toolCount: 22,
             description: "Messaging, channels, search, reactions, bookmarks",
             authMode: "personal_oauth",
+          },
+          {
+            name: "powerbi",
+            displayName: "Power BI",
+            toolCount: 14,
+            description: "Workspaces, datasets, DAX queries, reports, dashboards",
+            authMode: "personal_oauth",
+          },
+          {
+            name: "concur",
+            displayName: "SAP Concur",
+            toolCount: 16,
+            description: "Expense reports, entries, receipts, approvals",
+            authMode: "personal_oauth",
+          },
+          {
+            name: "mailchimp",
+            displayName: "Mailchimp",
+            toolCount: 34,
+            description: "Audiences, contacts, segments, campaigns, templates",
+            authMode: "personal_oauth",
+          },
+          {
+            name: "databricks",
+            displayName: "Databricks",
+            toolCount: 18,
+            description: "Unity Catalog, SQL queries, data dictionary, jobs",
+            authMode: "company_default",
           },
         ];
 
@@ -175,7 +212,14 @@ function renderAvailableMcps(mcps: AdminMcpInfo[] | null) {
   `;
 }
 
-function renderAccessMatrix(mcps: AdminMcpInfo[] | null, userAccess: AdminMcpAccessEntry[] | null) {
+function renderAccessMatrix(
+  mcps: AdminMcpInfo[] | null,
+  userAccess: AdminMcpAccessEntry[] | null,
+  onGrant: (userId: string, mcpName: string) => void,
+  onRevoke: (userId: string, mcpName: string) => void,
+  onSeed: () => void,
+  loading?: boolean,
+) {
   if (!userAccess || userAccess.length === 0) {
     return nothing;
   }
@@ -193,6 +237,10 @@ function renderAccessMatrix(mcps: AdminMcpInfo[] | null, userAccess: AdminMcpAcc
           "monday",
           "bestbuy",
           "slack",
+          "powerbi",
+          "concur",
+          "mailchimp",
+          "databricks",
         ];
 
   const mcpLabels =
@@ -203,23 +251,36 @@ function renderAccessMatrix(mcps: AdminMcpInfo[] | null, userAccess: AdminMcpAcc
           github: "GitHub",
           vercel: "Vercel",
           supabase: "Supabase",
-          m365: "Microsoft 365",
+          m365: "M365",
           salesforce: "Salesforce",
-          monday: "Monday.com",
-          bestbuy: "Best Buy",
+          monday: "Monday",
+          bestbuy: "BestBuy",
           slack: "Slack",
+          powerbi: "PowerBI",
+          concur: "Concur",
+          mailchimp: "Mailchimp",
+          databricks: "Databricks",
         };
 
   return html`
     <div class="card" style="margin-bottom: 16px;">
-      <div class="card-header"><h3>User MCP Access</h3></div>
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3>User MCP Access</h3>
+        <button
+          class="btn btn--sm"
+          ?disabled=${loading}
+          @click=${() => onSeed()}
+        >${loading ? "Seeding..." : "Seed All Users"}</button>
+      </div>
       <div class="card-body" style="overflow-x: auto;">
+        <p style="margin: 0 0 12px 0; font-size: 0.8rem;" class="muted">
+          Click a cell to toggle access. <strong>Seed All Users</strong> grants every active user access to all MCPs.
+        </p>
         <table class="data-table" style="width: 100%; font-size: 0.85rem;">
           <thead>
             <tr>
               <th>User</th>
-              ${mcpNames.map((name) => html`<th style="text-align: center;">${mcpLabels[name] ?? name}</th>`)}
-              <th>Status</th>
+              ${mcpNames.map((name) => html`<th style="text-align: center; font-size: 0.75rem;">${mcpLabels[name] ?? name}</th>`)}
             </tr>
           </thead>
           <tbody>
@@ -229,21 +290,26 @@ function renderAccessMatrix(mcps: AdminMcpInfo[] | null, userAccess: AdminMcpAcc
                   <td class="mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${entry.email}">${entry.displayName ?? entry.email}</td>
                   ${mcpNames.map((name) => {
                     const access = entry.mcpAccess?.[name];
-                    return html`<td style="text-align: center;">${
-                      access?.enabled
+                    const enabled = access?.enabled ?? false;
+                    return html`<td style="text-align: center; cursor: pointer; user-select: none;"
+                      title="${enabled ? `Revoke ${name} from ${entry.email}` : `Grant ${name} to ${entry.email}`}"
+                      @click=${() => {
+                        if (enabled) {
+                          onRevoke(entry.userId, name);
+                        } else {
+                          onGrant(entry.userId, name);
+                        }
+                      }}
+                    >${
+                      enabled
                         ? html`
-                            <span class="pill pill--sm success">Yes</span>
+                            <span class="pill pill--sm success" style="cursor: pointer">On</span>
                           `
                         : html`
-                            <span class="muted">-</span>
+                            <span class="pill pill--sm" style="cursor: pointer; opacity: 0.4">Off</span>
                           `
                     }</td>`;
                   })}
-                  <td>
-                    <span class="pill pill--sm ${entry.connectionStatus === "connected" ? "success" : entry.connectionStatus === "disconnected" ? "warning" : ""}">
-                      ${entry.connectionStatus}
-                    </span>
-                  </td>
                 </tr>
               `,
             )}
@@ -285,7 +351,14 @@ function renderSetupInstructions() {
 export function renderAdminMcp(props: AdminMcpProps) {
   return html`
     ${renderAvailableMcps(props.mcps)}
-    ${renderAccessMatrix(props.mcps, props.mcpAccess)}
+    ${renderAccessMatrix(
+      props.mcps,
+      props.mcpAccess,
+      props.onGrant,
+      props.onRevoke,
+      props.onSeed,
+      props.loading,
+    )}
     ${renderSetupInstructions()}
   `;
 }

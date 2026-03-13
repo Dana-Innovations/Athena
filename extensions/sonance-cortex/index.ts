@@ -556,6 +556,238 @@ const cortexPlugin = {
       }
     });
 
+    api.registerGatewayMethod("sonance.admin.mcp_user_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminMcpUserAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_mcp_user_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+        if (!user_id || !mcp_name) {
+          respond(false, { error: "user_id and mcp_name are required" });
+          return;
+        }
+        try {
+          const result = await client.grantMcpUserAccess({ user_id, mcp_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_mcp_user_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+        if (!user_id || !mcp_name) {
+          respond(false, { error: "user_id and mcp_name are required" });
+          return;
+        }
+        try {
+          const result = await client.revokeMcpUserAccess({ user_id, mcp_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_all_mcp_user_access",
+      async ({ params, respond }) => {
+        const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+        if (!mcp_name) {
+          respond(false, { error: "mcp_name is required" });
+          return;
+        }
+        try {
+          const result = await client.grantAllMcpUserAccess({ mcp_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_all_mcp_user_access",
+      async ({ params, respond }) => {
+        const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+        if (!mcp_name) {
+          respond(false, { error: "mcp_name is required" });
+          return;
+        }
+        try {
+          const result = await client.revokeAllMcpUserAccess({ mcp_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod("sonance.admin.seed_mcp_user_access", async ({ respond }) => {
+      try {
+        const result = await client.seedMcpUserAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.mcp_setup_config", async ({ respond }) => {
+      try {
+        const result = await client.getAdminMcpSetupConfig();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.update_mcp_setup_config",
+      async ({ params, respond }) => {
+        const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+        const enabled = params?.enabled === true;
+        if (!mcp_name) {
+          respond(false, { error: "mcp_name is required" });
+          return;
+        }
+        try {
+          const result = await client.updateMcpSetupConfig({ mcp_name, enabled });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    // ── MCP Groups ──────────────────────────────────────────────────────────
+    api.registerGatewayMethod("sonance.admin.mcp_groups", async ({ respond }) => {
+      try {
+        const result = await client.getAdminMcpGroups();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.create_mcp_group", async ({ params, respond }) => {
+      const name = typeof params?.name === "string" ? params.name.trim() : "";
+      const description = typeof params?.description === "string" ? params.description.trim() : "";
+      if (!name) {
+        respond(false, { error: "name is required" });
+        return;
+      }
+      try {
+        const result = await client.createMcpGroup({ name, description: description || undefined });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.update_mcp_group", async ({ params, respond }) => {
+      const group_id = typeof params?.group_id === "string" ? params.group_id.trim() : "";
+      if (!group_id) {
+        respond(false, { error: "group_id is required" });
+        return;
+      }
+      try {
+        const result = await client.updateMcpGroup(group_id, {
+          name: typeof params?.name === "string" ? params.name.trim() : undefined,
+          description:
+            typeof params?.description === "string" ? params.description.trim() : undefined,
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.delete_mcp_group", async ({ params, respond }) => {
+      const group_id = typeof params?.group_id === "string" ? params.group_id.trim() : "";
+      if (!group_id) {
+        respond(false, { error: "group_id is required" });
+        return;
+      }
+      try {
+        const result = await client.deleteMcpGroup(group_id);
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.add_group_members", async ({ params, respond }) => {
+      const group_id = typeof params?.group_id === "string" ? params.group_id.trim() : "";
+      const user_ids = Array.isArray(params?.user_ids) ? params.user_ids : [];
+      if (!group_id || user_ids.length === 0) {
+        respond(false, { error: "group_id and user_ids are required" });
+        return;
+      }
+      try {
+        const result = await client.addGroupMembers(group_id, { user_ids });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.remove_group_member", async ({ params, respond }) => {
+      const group_id = typeof params?.group_id === "string" ? params.group_id.trim() : "";
+      const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+      if (!group_id || !user_id) {
+        respond(false, { error: "group_id and user_id are required" });
+        return;
+      }
+      try {
+        const result = await client.removeGroupMember(group_id, user_id);
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.grant_group_access", async ({ params, respond }) => {
+      const group_id = typeof params?.group_id === "string" ? params.group_id.trim() : "";
+      const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+      if (!group_id || !mcp_name) {
+        respond(false, { error: "group_id and mcp_name are required" });
+        return;
+      }
+      try {
+        const result = await client.grantGroupAccess(group_id, { mcp_name });
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod("sonance.admin.revoke_group_access", async ({ params, respond }) => {
+      const group_id = typeof params?.group_id === "string" ? params.group_id.trim() : "";
+      const mcp_name = typeof params?.mcp_name === "string" ? params.mcp_name.trim() : "";
+      if (!group_id || !mcp_name) {
+        respond(false, { error: "group_id and mcp_name are required" });
+        return;
+      }
+      try {
+        const result = await client.revokeGroupAccess(group_id, mcp_name);
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
     api.registerGatewayMethod("sonance.admin.project_access", async ({ respond }) => {
       try {
         const result = await client.getAdminProjectAccess();
@@ -799,6 +1031,55 @@ const cortexPlugin = {
         }
         try {
           const result = await client.grantAllVercelProjectAccess({ user_id });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    // ── Databricks catalog access (admin) ───────────────────────────────
+
+    api.registerGatewayMethod("sonance.admin.databricks_access", async ({ respond }) => {
+      try {
+        const result = await client.getAdminDatabricksAccess();
+        respond(true, result);
+      } catch (err) {
+        respond(false, { error: String(err) });
+      }
+    });
+
+    api.registerGatewayMethod(
+      "sonance.admin.grant_databricks_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const catalog_name =
+          typeof params?.catalog_name === "string" ? params.catalog_name.trim() : "";
+        if (!user_id || !catalog_name) {
+          respond(false, { error: "user_id and catalog_name are required" });
+          return;
+        }
+        try {
+          const result = await client.grantDatabricksAccess({ user_id, catalog_name });
+          respond(true, result);
+        } catch (err) {
+          respond(false, { error: String(err) });
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "sonance.admin.revoke_databricks_access",
+      async ({ params, respond }) => {
+        const user_id = typeof params?.user_id === "string" ? params.user_id.trim() : "";
+        const catalog_name =
+          typeof params?.catalog_name === "string" ? params.catalog_name.trim() : "";
+        if (!user_id || !catalog_name) {
+          respond(false, { error: "user_id and catalog_name are required" });
+          return;
+        }
+        try {
+          const result = await client.revokeDatabricksAccess({ user_id, catalog_name });
           respond(true, result);
         } catch (err) {
           respond(false, { error: String(err) });

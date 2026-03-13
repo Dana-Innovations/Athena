@@ -55,6 +55,7 @@ export type CortexAuditPayload = {
     success: boolean;
     error?: string;
     blocked?: boolean;
+    keySource?: string;
   }>;
 };
 
@@ -804,7 +805,7 @@ export class CortexClient {
     }>;
     total_grants: number;
   }> {
-    return this.request("/api/v1/admin/project-access");
+    return this.request("/api/v1/admin/project-access", { timeoutMs: 30_000 });
   }
 
   /** Grant a user access to a Supabase project (admin-only). */
@@ -873,7 +874,7 @@ export class CortexClient {
     }>;
     total_grants: number;
   }> {
-    return this.request("/api/v1/admin/github-repo-access");
+    return this.request("/api/v1/admin/github-repo-access", { timeoutMs: 30_000 });
   }
 
   /** Grant a user access to a GitHub repo (admin-only). */
@@ -942,7 +943,7 @@ export class CortexClient {
     }>;
     total_grants: number;
   }> {
-    return this.request("/api/v1/admin/vercel-project-access");
+    return this.request("/api/v1/admin/vercel-project-access", { timeoutMs: 30_000 });
   }
 
   /** Grant a user access to a Vercel project (admin-only). */
@@ -985,6 +986,230 @@ export class CortexClient {
     return this.request("/api/v1/admin/vercel-project-access/grant-all", {
       method: "POST",
       body: params,
+    });
+  }
+
+  // ── Admin: Databricks catalog access ──────────────────────────────
+
+  /** Get Databricks catalog access matrix (admin-only). */
+  async getAdminDatabricksAccess(): Promise<{
+    catalogs: Array<{
+      catalog_name: string;
+      user_count: number;
+      grants: Array<{
+        id: string;
+        user_id: string;
+        email: string;
+        display_name: string | null;
+        catalog_name: string;
+        grant_source: string;
+        granted_by: string | null;
+        created_at: string | null;
+        is_active: boolean;
+        revoked_at: string | null;
+      }>;
+    }>;
+    total_grants: number;
+  }> {
+    return this.request("/api/v1/admin/databricks-access", { timeoutMs: 30_000 });
+  }
+
+  /** Grant a user access to a Databricks catalog (admin-only). */
+  async grantDatabricksAccess(params: {
+    user_id: string;
+    catalog_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/databricks-access/grant", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  /** Revoke a user's access to a Databricks catalog (admin-only). */
+  async revokeDatabricksAccess(params: {
+    user_id: string;
+    catalog_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/databricks-access/revoke?user_id=${encodeURIComponent(params.user_id)}&catalog_name=${encodeURIComponent(params.catalog_name)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  // ── MCP User Access (MCP-level enable/disable) ──────────────────────
+
+  /** Get all MCP user access grants (admin-only). */
+  async getAdminMcpUserAccess(): Promise<{
+    mcps: Array<{
+      mcp_name: string;
+      display_name: string;
+      user_count: number;
+      grants: Array<{
+        id: string;
+        user_id: string;
+        email: string;
+        display_name: string | null;
+        mcp_name: string;
+        grant_source: string;
+        granted_by: string | null;
+        created_at: string | null;
+        is_active: boolean;
+        revoked_at: string | null;
+      }>;
+    }>;
+    total_grants: number;
+  }> {
+    return this.request("/api/v1/admin/mcp-user-access", { timeoutMs: 30_000 });
+  }
+
+  /** Grant a user access to an MCP (admin-only). */
+  async grantMcpUserAccess(params: {
+    user_id: string;
+    mcp_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/mcp-user-access/grant", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  /** Revoke a user's access to an MCP (admin-only). */
+  async revokeMcpUserAccess(params: {
+    user_id: string;
+    mcp_name: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request(
+      `/api/v1/admin/mcp-user-access/revoke?user_id=${encodeURIComponent(params.user_id)}&mcp_name=${encodeURIComponent(params.mcp_name)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Grant ALL active users access to a specific MCP (admin-only). */
+  async grantAllMcpUserAccess(params: {
+    mcp_name: string;
+  }): Promise<{ ok: boolean; users_processed: number; message: string }> {
+    return this.request(
+      `/api/v1/admin/mcp-user-access/grant-all?mcp_name=${encodeURIComponent(params.mcp_name)}`,
+      { method: "POST", timeoutMs: 30_000 },
+    );
+  }
+
+  /** Revoke ALL users' access to a specific MCP (admin-only). */
+  async revokeAllMcpUserAccess(params: {
+    mcp_name: string;
+  }): Promise<{ ok: boolean; users_processed: number; message: string }> {
+    return this.request(
+      `/api/v1/admin/mcp-user-access/revoke-all?mcp_name=${encodeURIComponent(params.mcp_name)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Seed all active users with access to all MCPs (admin-only). */
+  async seedMcpUserAccess(): Promise<{
+    ok: boolean;
+    users_processed: number;
+    grants_created: number;
+    message: string;
+  }> {
+    return this.request("/api/v1/admin/mcp-user-access/seed", {
+      method: "POST",
+      timeoutMs: 60_000,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP Setup Wizard Config
+  // ---------------------------------------------------------------------------
+
+  async getAdminMcpSetupConfig(): Promise<{
+    items: Array<{
+      mcp_name: string;
+      display_name: string;
+      enabled_in_setup: boolean;
+    }>;
+  }> {
+    return this.request("/api/v1/admin/mcp-setup-config");
+  }
+
+  async updateMcpSetupConfig(params: {
+    mcp_name: string;
+    enabled: boolean;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.request("/api/v1/admin/mcp-setup-config", {
+      method: "PATCH",
+      body: params,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP Groups
+  // ---------------------------------------------------------------------------
+
+  async getAdminMcpGroups(): Promise<{ groups: any[]; total: number }> {
+    return this.request("/api/v1/admin/mcp-groups");
+  }
+
+  async createMcpGroup(params: {
+    name: string;
+    description?: string;
+  }): Promise<{ ok: boolean; group?: any; message: string }> {
+    return this.request("/api/v1/admin/mcp-groups", {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  async updateMcpGroup(
+    groupId: string,
+    params: { name?: string; description?: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.request(`/api/v1/admin/mcp-groups/${groupId}`, {
+      method: "PATCH",
+      body: params,
+    });
+  }
+
+  async deleteMcpGroup(groupId: string): Promise<{ ok: boolean; message: string }> {
+    return this.request(`/api/v1/admin/mcp-groups/${groupId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async addGroupMembers(
+    groupId: string,
+    params: { user_ids: string[] },
+  ): Promise<{ ok: boolean; added: number; message: string }> {
+    return this.request(`/api/v1/admin/mcp-groups/${groupId}/members`, {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  async removeGroupMember(
+    groupId: string,
+    userId: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.request(`/api/v1/admin/mcp-groups/${groupId}/members/${userId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async grantGroupAccess(
+    groupId: string,
+    params: { mcp_name: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.request(`/api/v1/admin/mcp-groups/${groupId}/access`, {
+      method: "POST",
+      body: params,
+    });
+  }
+
+  async revokeGroupAccess(
+    groupId: string,
+    mcpName: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.request(`/api/v1/admin/mcp-groups/${groupId}/access/${mcpName}`, {
+      method: "DELETE",
     });
   }
 

@@ -47,6 +47,8 @@ export const en: TranslationMap = {
     supabase: "Supabase",
     github: "GitHub",
     vercel: "Vercel",
+    databricks: "Databricks",
+    mcps: "MCP Access",
   },
   subtitles: {
     dashboard: "Your personalized overview of connected services and activity.",
@@ -70,6 +72,8 @@ export const en: TranslationMap = {
     supabase: "Manage user access to Supabase projects.",
     github: "Manage user access to GitHub repositories.",
     vercel: "Manage user access to Vercel projects.",
+    databricks: "Manage user access to Databricks catalogs.",
+    mcps: "Manage user access to MCP integrations.",
   },
   overview: {
     access: {

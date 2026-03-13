@@ -33,6 +33,9 @@ export type AdminViewProps = {
   usageDetails: AdminUsageDetail[] | null;
   mcps: AdminMcpInfo[] | null;
   mcpAccess: AdminMcpAccessEntry[] | null;
+  onMcpGrant: (userId: string, mcpName: string) => void;
+  onMcpRevoke: (userId: string, mcpName: string) => void;
+  onMcpSeed: () => void;
   activityLog: AdminActivityLogResponse | null;
   activityLogLoading: boolean;
   activityFilters: AdminActivityFilters;
@@ -106,6 +109,11 @@ export function renderAdmin(props: AdminViewProps) {
         ? renderAdminMcp({
             mcps: props.mcps,
             mcpAccess: props.mcpAccess,
+            mcpUserAccess: null,
+            onGrant: props.onMcpGrant,
+            onRevoke: props.onMcpRevoke,
+            onSeed: props.onMcpSeed,
+            loading: props.loading,
           })
         : nothing
     }

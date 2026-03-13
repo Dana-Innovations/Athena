@@ -82,6 +82,13 @@ const WIDGET_FETCH_CONFIG: Record<
       resultKey: "campaigns",
     },
   ],
+  databricks: [
+    {
+      toolName: "databricks__list_warehouses",
+      args: {},
+      resultKey: "warehouses",
+    },
+  ],
 };
 
 const MCP_DISPLAY_NAMES: Record<string, string> = {
@@ -95,6 +102,7 @@ const MCP_DISPLAY_NAMES: Record<string, string> = {
   bestbuy: "Best Buy",
   powerbi: "Power BI",
   mailchimp: "Mailchimp",
+  databricks: "Databricks",
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
