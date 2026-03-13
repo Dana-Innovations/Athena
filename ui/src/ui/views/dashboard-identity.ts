@@ -33,6 +33,7 @@ const AVAILABLE_MCPS = [
   { name: "slack", display: "Slack", auth: "personal" as const, icon: "#" },
   { name: "powerbi", display: "Power BI", auth: "personal" as const, icon: "\u2593" },
   { name: "bestbuy", display: "Best Buy", auth: "company" as const, icon: "\u2605" },
+  { name: "databricks", display: "Databricks", auth: "company" as const, icon: "\u25C6" },
 ];
 
 function isConnected(mcpName: string, connections: MCPConnection[] | null): MCPConnection | null {

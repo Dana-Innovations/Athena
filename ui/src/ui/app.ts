@@ -377,6 +377,16 @@ export class OpenClawApp extends LitElement {
     | import("./types-admin.js").AdminDatabricksCatalogSummary[]
     | null = null;
   @state() adminDatabricksExpandedUserId: string | null = null;
+  @state() adminMcpUserAccess: import("./types-admin.js").AdminMcpUserAccessSummary[] | null = null;
+  @state() adminMcpExpandedName: string | null = null;
+  @state() adminMcpSetupConfig: Array<{
+    mcp_name: string;
+    display_name: string;
+    enabled_in_setup: boolean;
+  }> | null = null;
+  @state() adminMcpGroups: import("./types-admin.js").McpGroup[] | null = null;
+  @state() adminMcpExpandedGroupId: string | null = null;
+  @state() adminMcpGroupCreating = false;
   @state() adminActivityLog: import("./types-admin.js").AdminActivityLogResponse | null = null;
   @state() adminActivityLogLoading = false;
   @state() adminActivityFilters: import("./types-admin.js").AdminActivityFilters = {

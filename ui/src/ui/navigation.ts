@@ -6,7 +6,7 @@ export const TAB_GROUPS = [
   { label: "chat", tabs: ["chat"] },
   { label: "cortex", tabs: ["usage"] },
   { label: "settings", tabs: ["config"] },
-  { label: "admin", tabs: ["admin", "supabase", "github", "vercel", "databricks"] },
+  { label: "admin", tabs: ["admin", "supabase", "github", "vercel", "databricks", "mcps"] },
 ] as const;
 
 /** Legacy tab groups preserved for reference / future re-enablement. */
@@ -44,7 +44,8 @@ export type Tab =
   | "supabase"
   | "github"
   | "vercel"
-  | "databricks";
+  | "databricks"
+  | "mcps";
 
 const TAB_PATHS: Record<Tab, string> = {
   dashboard: "/dashboard",
@@ -69,6 +70,7 @@ const TAB_PATHS: Record<Tab, string> = {
   github: "/github",
   vercel: "/vercel",
   databricks: "/databricks",
+  mcps: "/mcps",
 };
 
 const PATH_TO_TAB = new Map(Object.entries(TAB_PATHS).map(([tab, path]) => [path, tab as Tab]));
@@ -198,6 +200,8 @@ export function iconForTab(tab: Tab): IconName {
       return "link";
     case "databricks":
       return "barChart";
+    case "mcps":
+      return "zap";
     default:
       return "folder";
   }

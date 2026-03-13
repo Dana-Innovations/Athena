@@ -39,6 +39,8 @@ import type {
   AdminMcpInfo,
   AdminDatabricksCatalogSummary,
   AdminGitHubRepoSummary,
+  AdminMcpUserAccessSummary,
+  McpGroup,
   AdminProjectSummary,
   AdminUsageDetail,
   AdminUsageSummary,
@@ -291,6 +293,16 @@ export type AppViewState = {
   adminVercelExpandedUserId: string | null;
   adminDatabricksCatalogs: AdminDatabricksCatalogSummary[] | null;
   adminDatabricksExpandedUserId: string | null;
+  adminMcpUserAccess: AdminMcpUserAccessSummary[] | null;
+  adminMcpExpandedName: string | null;
+  adminMcpSetupConfig: Array<{
+    mcp_name: string;
+    display_name: string;
+    enabled_in_setup: boolean;
+  }> | null;
+  adminMcpGroups: McpGroup[] | null;
+  adminMcpExpandedGroupId: string | null;
+  adminMcpGroupCreating: boolean;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;

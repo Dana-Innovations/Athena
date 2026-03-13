@@ -200,3 +200,41 @@ export type AdminDatabricksCatalogSummary = {
   user_count: number;
   grants: AdminDatabricksCatalogAccessGrant[];
 };
+
+export type AdminMcpUserAccessGrant = {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  mcp_name: string;
+  grant_source: string;
+  granted_by: string | null;
+  created_at: string | null;
+  is_active: boolean;
+  revoked_at: string | null;
+};
+
+export type AdminMcpUserAccessSummary = {
+  mcp_name: string;
+  display_name: string;
+  user_count: number;
+  grants: AdminMcpUserAccessGrant[];
+};
+
+export type McpGroupMember = {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  added_at: string | null;
+};
+
+export type McpGroup = {
+  id: string;
+  name: string;
+  description: string | null;
+  member_count: number;
+  members: McpGroupMember[];
+  mcp_grants: string[];
+  created_by: string | null;
+  created_at: string | null;
+};

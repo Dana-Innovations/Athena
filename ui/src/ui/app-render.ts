@@ -12,10 +12,12 @@ import {
 } from "./controllers/admin-activity-log.ts";
 import {
   grantAllGitHubRepoAccess,
+  grantAllMcpUserAccess,
   grantAllProjectAccess,
   grantAllVercelProjectAccess,
   grantDatabricksAccess,
   grantGitHubRepoAccess,
+  grantMcpUserAccess,
   grantProjectAccess,
   grantVercelProjectAccess,
   loadAdminData,
@@ -24,13 +26,26 @@ import {
   loadAdminProjectAccess,
   loadAdminUsers,
   loadAdminVercelProjectAccess,
+  loadMcpGroups,
+  loadMcpSetupConfig,
+  loadMcpUserAccess,
+  revokeAllMcpUserAccess,
   revokeDatabricksAccess,
+  revokeMcpUserAccess,
   revokeAllGitHubRepoAccess,
   revokeAllProjectAccess,
   revokeAllVercelProjectAccess,
   revokeGitHubRepoAccess,
   revokeProjectAccess,
   revokeVercelProjectAccess,
+  seedMcpUserAccess,
+  updateMcpSetupConfig,
+  createMcpGroup,
+  deleteMcpGroup,
+  addGroupMembers,
+  removeGroupMember,
+  grantGroupAccess,
+  revokeGroupAccess,
   type AdminState,
 } from "./controllers/admin.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
@@ -111,6 +126,7 @@ import { icons } from "./icons.ts";
 import { TAB_GROUPS, TAB_GROUPS_LEGACY, subtitleForTab, titleForTab } from "./navigation.ts";
 import { renderAdminDatabricks } from "./views/admin-databricks.ts";
 import { renderAdminGitHub } from "./views/admin-github.ts";
+import { renderAdminMcps } from "./views/admin-mcps.ts";
 import { renderAdminProjects } from "./views/admin-projects.ts";
 import { renderAdminVercel } from "./views/admin-vercel.ts";
 import { renderAdmin } from "./views/admin.ts";
@@ -665,6 +681,15 @@ export function renderApp(state: AppViewState) {
                 usageDetails: state.adminUsageDetails,
                 mcps: state.adminMcps,
                 mcpAccess: state.adminMcpAccess,
+                onMcpGrant: (userId: string, mcpName: string) => {
+                  void grantMcpUserAccess(state as unknown as AdminState, userId, mcpName);
+                },
+                onMcpRevoke: (userId: string, mcpName: string) => {
+                  void revokeMcpUserAccess(state as unknown as AdminState, userId, mcpName);
+                },
+                onMcpSeed: () => {
+                  void seedMcpUserAccess(state as unknown as AdminState);
+                },
                 activityLog: state.adminActivityLog,
                 activityLogLoading: state.adminActivityLogLoading,
                 activityFilters: state.adminActivityFilters,
@@ -814,6 +839,81 @@ export function renderApp(state: AppViewState) {
                   onRevoke: (userId, catalogName) => {
                     void revokeDatabricksAccess(adminState, userId, catalogName);
                   },
+                });
+              })()
+            : nothing
+        }
+
+        ${
+          state.tab === "mcps"
+            ? (() => {
+                const adminState = state as unknown as AdminState;
+                if (!state.adminMcpUserAccess) {
+                  void loadMcpUserAccess(adminState);
+                  void loadAdminUsers(adminState);
+                }
+                if (!state.adminMcpSetupConfig) {
+                  void loadMcpSetupConfig(adminState);
+                }
+                if (!state.adminMcpGroups) {
+                  void loadMcpGroups(adminState);
+                }
+                return renderAdminMcps({
+                  mcps: state.adminMcpUserAccess,
+                  users: state.adminUsers,
+                  expandedMcpName: state.adminMcpExpandedName,
+                  onToggleMcp: (mcpName) => {
+                    state.adminMcpExpandedName =
+                      state.adminMcpExpandedName === mcpName ? null : mcpName;
+                  },
+                  onGrant: (userId, mcpName) => {
+                    void grantMcpUserAccess(adminState, userId, mcpName);
+                  },
+                  onRevoke: (userId, mcpName) => {
+                    void revokeMcpUserAccess(adminState, userId, mcpName);
+                  },
+                  onGrantAll: (mcpName) => {
+                    void grantAllMcpUserAccess(adminState, mcpName);
+                  },
+                  onRevokeAll: (mcpName) => {
+                    void revokeAllMcpUserAccess(adminState, mcpName);
+                  },
+                  onSeed: () => {
+                    void seedMcpUserAccess(adminState);
+                  },
+                  mcpSetupConfig: state.adminMcpSetupConfig,
+                  onToggleSetup: (mcpName, enabled) => {
+                    void updateMcpSetupConfig(adminState, mcpName, enabled);
+                  },
+                  groups: state.adminMcpGroups,
+                  expandedGroupId: state.adminMcpExpandedGroupId,
+                  groupCreating: state.adminMcpGroupCreating,
+                  onToggleGroup: (groupId) => {
+                    state.adminMcpExpandedGroupId =
+                      state.adminMcpExpandedGroupId === groupId ? null : groupId;
+                  },
+                  onCreateGroup: (name, description) => {
+                    void createMcpGroup(adminState, name, description);
+                  },
+                  onDeleteGroup: (groupId) => {
+                    void deleteMcpGroup(adminState, groupId);
+                  },
+                  onAddGroupMembers: (groupId, userIds) => {
+                    void addGroupMembers(adminState, groupId, userIds);
+                  },
+                  onRemoveGroupMember: (groupId, userId) => {
+                    void removeGroupMember(adminState, groupId, userId);
+                  },
+                  onGrantGroupAccess: (groupId, mcpName) => {
+                    void grantGroupAccess(adminState, groupId, mcpName);
+                  },
+                  onRevokeGroupAccess: (groupId, mcpName) => {
+                    void revokeGroupAccess(adminState, groupId, mcpName);
+                  },
+                  onShowCreateGroup: () => {
+                    state.adminMcpGroupCreating = !state.adminMcpGroupCreating;
+                  },
+                  loading: state.adminLoading,
                 });
               })()
             : nothing
