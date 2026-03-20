@@ -10,6 +10,8 @@ import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controlle
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import {
+  createAgent,
+  deleteAgent,
   initiateOAuthConnect,
   loadAgents,
   loadCortexConnections,
@@ -58,10 +60,18 @@ import {
   loadPlatformMemory,
   deletePlatformMemory,
   loadPlatformAudit,
+  loadPlatformCron,
   loadPlatformMetrics,
   loadPlatformAgents,
   updateAgentSoul,
   updateAgentConfig,
+  loadSoulVersions,
+  rollbackSoulVersion,
+  loadAgentErrors,
+  loadAgentErrorEvents,
+  loadAgentHealthSamples,
+  restartGateway,
+  resetAgent,
   type PlatformState,
 } from "./controllers/platform.ts";
 import { loadPresence } from "./controllers/presence.ts";
@@ -107,7 +117,9 @@ import { renderAgents } from "./views/agents.ts";
 import { renderApollo } from "./views/apollo.ts";
 import { renderChannels } from "./views/channels.ts";
 import { renderChat } from "./views/chat.ts";
+import { renderCommandCenter } from "./views/command-center.ts";
 import { renderConfig } from "./views/config.ts";
+import { renderCortexConnections } from "./views/cortex-connections.ts";
 import { renderCron } from "./views/cron.ts";
 import { renderDashboardIdentity } from "./views/dashboard-identity.ts";
 import { renderDashboard } from "./views/dashboard-legacy.ts";
@@ -122,7 +134,9 @@ import { renderOverview } from "./views/overview.ts";
 import { renderAgentManager } from "./views/platform-agents.ts";
 import { renderPlatformAudit } from "./views/platform-audit.ts";
 import { renderConversationBrowser } from "./views/platform-conversations.ts";
+import { renderPlatformCron } from "./views/platform-cron.ts";
 import { renderPlatformDashboard } from "./views/platform-dashboard.ts";
+import { renderPlatformDeployment } from "./views/platform-deployment.ts";
 import { renderMemoryBrowser } from "./views/platform-memory.ts";
 import { renderSessions } from "./views/sessions.ts";
 import { renderSkills } from "./views/skills.ts";
@@ -223,6 +237,10 @@ export function renderApp(state: AppViewState) {
         ${(state.settings.dashboardView === "legacy" ? TAB_GROUPS_LEGACY : TAB_GROUPS)
           .filter((group) => group.label !== "admin" || state.cortexUser?.role === "admin")
           .map((group) => {
+            if (state.settings.dashboardView !== "legacy") {
+              // Flat nav — no section headers, no borders
+              return html`${group.tabs.map((tab) => renderTab(state, tab))}`;
+            }
             const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
             const hasActiveTab = group.tabs.some((tab) => tab === state.tab);
             return html`
@@ -248,30 +266,13 @@ export function renderApp(state: AppViewState) {
             </div>
           `;
           })}
-        <div class="nav-group nav-group--links">
-          <div class="nav-label nav-label--static">
-            <span class="nav-label__text">${t("common.resources")}</span>
-          </div>
-          <div class="nav-group__items">
-            <a
-              class="nav-item nav-item--external"
-              href="https://docs.openclaw.ai"
-              target="_blank"
-              rel="noreferrer"
-              title="${t("common.docs")} (opens in new tab)"
-            >
-              <span class="nav-item__icon" aria-hidden="true">${icons.book}</span>
-              <span class="nav-item__text">${t("common.docs")}</span>
-            </a>
-          </div>
-        </div>
       </aside>
       <main class="content ${isChat ? "content--chat" : ""}">
         ${nothing}
         <section class="content-header">
           <div>
-            ${state.tab === "usage" || state.tab === "dashboard" ? nothing : html`<div class="page-title">${titleForTab(state.tab)}</div>`}
-            ${state.tab === "usage" || state.tab === "dashboard" ? nothing : html`<div class="page-sub">${subtitleForTab(state.tab)}</div>`}
+            ${["usage", "dashboard", "command-center", "platform-connections", "platform-agents", "platform-deployment"].includes(state.tab) ? nothing : html`<div class="page-title">${titleForTab(state.tab)}</div>`}
+            ${["usage", "dashboard", "command-center", "platform-connections", "platform-agents", "platform-deployment"].includes(state.tab) ? nothing : html`<div class="page-sub">${subtitleForTab(state.tab)}</div>`}
           </div>
           <div class="page-meta">
             ${state.lastError ? html`<div class="pill danger">${state.lastError}</div>` : nothing}
@@ -336,6 +337,9 @@ export function renderApp(state: AppViewState) {
                         dashboardStats: state.dashboardStats ?? null,
                         dashboardStatsLoading: state.dashboardStatsLoading,
                         connected: state.connected,
+                        platformStats: state.platformStats ?? null,
+                        platformAgentStats: state.platformAgentStats ?? null,
+                        platformStatsLoading: state.platformStatsLoading ?? false,
                         onLoadConnections: () => {
                           void loadCortexConnections(state);
                         },
@@ -674,7 +678,19 @@ export function renderApp(state: AppViewState) {
                 soulEditing: state.platformSoulEditing,
                 soulDraft: state.platformSoulDraft,
                 soulSaving: state.platformSoulSaving,
-                onRefresh: () => void loadPlatformAgents(state as unknown as PlatformState),
+                soulError: state.platformSoulError,
+                stats: state.platformStats,
+                agentStats: state.platformAgentStats,
+                metrics: state.platformMetrics,
+                cortexToolGroups: state.cortexToolGroups,
+                cortexConnections: state.cortexConnections,
+                onRefresh: () => {
+                  void loadPlatformAgents(state as unknown as PlatformState);
+                  void loadPlatformStats(state as unknown as PlatformState);
+                  void loadPlatformMetrics(state as unknown as PlatformState);
+                  void loadCortexTools(state);
+                  void loadCortexConnections(state);
+                },
                 onSelectAgent: (id) => {
                   state.platformSelectedAgentId = id;
                   state.platformSoulEditing = false;
@@ -696,9 +712,83 @@ export function renderApp(state: AppViewState) {
                 onCancelEdit: () => {
                   state.platformSoulEditing = false;
                   state.platformSoulDraft = null;
+                  state.platformSoulError = null;
                 },
                 onUpdateConfig: (agentId, updates) => {
                   void updateAgentConfig(state as unknown as PlatformState, agentId, updates);
+                },
+                showCreateModal: state.platformShowCreateModal,
+                createError: state.platformCreateError,
+                deleteConfirmId: state.platformDeleteConfirmId,
+                onShowCreateModal: (show) => {
+                  state.platformShowCreateModal = show;
+                  state.platformCreateError = null;
+                },
+                onCreateAgent: (params) => {
+                  void createAgent(state, params).then((res) => {
+                    if (res.ok) {
+                      state.platformShowCreateModal = false;
+                      state.platformCreateError = null;
+                      void loadPlatformAgents(state as unknown as PlatformState);
+                    } else {
+                      state.platformCreateError = res.error ?? "Failed to create agent";
+                    }
+                  });
+                },
+                onDeleteAgent: (agentId) => {
+                  void deleteAgent(state, agentId).then((res) => {
+                    state.platformDeleteConfirmId = null;
+                    if (!res.ok) {
+                      state.platformAgentsError = res.error ?? "Failed to delete agent";
+                    }
+                    void loadPlatformAgents(state as unknown as PlatformState);
+                  });
+                },
+                onConfirmDelete: (agentId) => {
+                  state.platformDeleteConfirmId = agentId;
+                },
+                onOAuthConnect: (mcpName) => {
+                  void initiateOAuthConnect(state, mcpName);
+                },
+                soulVersions: state.platformSoulVersions,
+                soulVersionsLoading: state.platformSoulVersionsLoading,
+                soulVersionsAgentId: state.platformSoulVersionsAgentId,
+                onLoadVersions: (agentId) => {
+                  void loadSoulVersions(state as unknown as PlatformState, agentId);
+                },
+                onRestoreVersion: (agentId, version) => {
+                  void rollbackSoulVersion(
+                    state as unknown as PlatformState,
+                    agentId,
+                    version,
+                  ).then(() => {
+                    state.platformSoulVersions = null;
+                    state.platformSoulVersionsAgentId = null;
+                    void loadPlatformAgents(state as unknown as PlatformState);
+                  });
+                },
+                onViewErrors: (agentId) => {
+                  state.platformAuditFilter = { agentId };
+                  state.setTab("platform-audit" as Tab);
+                  void loadPlatformAudit(state as unknown as PlatformState);
+                },
+                agentErrors: state.platformAgentErrors,
+                agentErrorsLoading: state.platformAgentErrorsLoading,
+                agentErrorsAgentId: state.platformAgentErrorsAgentId,
+                onLoadErrors: (agentId) => {
+                  void loadAgentErrors(state as unknown as PlatformState, agentId);
+                },
+                errorEvents: state.platformErrorEvents,
+                errorEventsLoading: state.platformErrorEventsLoading,
+                errorEventsAgentId: state.platformErrorEventsAgentId,
+                onLoadErrorEvents: (agentId) => {
+                  void loadAgentErrorEvents(state as unknown as PlatformState, agentId);
+                },
+                healthSamples: state.platformHealthSamples,
+                healthSamplesLoading: state.platformHealthSamplesLoading,
+                healthSamplesAgentId: state.platformHealthSamplesAgentId,
+                onLoadHealthSamples: (agentId) => {
+                  void loadAgentHealthSamples(state as unknown as PlatformState, agentId);
                 },
               })
             : nothing
@@ -765,6 +855,77 @@ export function renderApp(state: AppViewState) {
                   void loadPlatformAudit(state as unknown as PlatformState);
                 },
                 onRefresh: () => void loadPlatformAudit(state as unknown as PlatformState),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-cron"
+            ? renderPlatformCron({
+                loading: state.platformCronLoading,
+                error: state.platformCronError,
+                jobs: state.platformCronJobs,
+                runs: state.platformCronRuns,
+                onRefresh: () => void loadPlatformCron(state as unknown as PlatformState),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-deployment"
+            ? renderPlatformDeployment({
+                loading: state.platformAgentsLoading,
+                error: state.platformAgentsError,
+                agents: state.platformAgents,
+                agentStats: state.platformAgentStats,
+                connections: state.cortexConnections,
+                restartLoading: state.platformRestartLoading,
+                restartResult: state.platformRestartResult,
+                agentResetLoading: state.platformAgentResetLoading,
+                agentResetResult: state.platformAgentResetResult,
+                onRefresh: () => {
+                  void loadPlatformAgents(state as unknown as PlatformState);
+                  void loadPlatformStats(state as unknown as PlatformState);
+                  void loadCortexConnections(state);
+                },
+                onRestart: () => {
+                  void restartGateway(state as unknown as PlatformState);
+                },
+                onResetAgent: (agentId) => {
+                  void resetAgent(state as unknown as PlatformState, agentId);
+                },
+                onNavigateToAgent: (agentId) => {
+                  state.platformSelectedAgentId = agentId;
+                  state.setTab("platform-agents" as Tab);
+                },
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "command-center"
+            ? renderCommandCenter({
+                platformAgents: state.platformAgents,
+                platformAgentsLoading: state.platformAgentsLoading,
+                connected: state.connected,
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "platform-connections"
+            ? renderCortexConnections({
+                toolGroups: state.cortexToolGroups,
+                connections: state.connections,
+                loading: !state.connectionsLoaded,
+                error: null,
+                onRefresh: () => {
+                  void loadCortexTools(state);
+                  void loadCortexConnections(state);
+                },
+                onOAuthConnect: (mcpName) => {
+                  void initiateOAuthConnect(state, mcpName);
+                },
               })
             : nothing
         }

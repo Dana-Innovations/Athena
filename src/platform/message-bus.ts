@@ -3,11 +3,12 @@
  *
  * Enables inter-agent communication with three patterns:
  *   - query:    request/response (synchronous-style, awaitable)
- *   - delegate: hand off a task to another agent (fire-and-wait)
- *   - notify:   fire-and-forget event
+ *   - delegate: hand off a task to another agent (fire-and-forget;
+ *               result is delivered proactively to the originating user)
+ *   - notify:   fire-and-forget event broadcast
  *
- * Phase 1: query/reply pattern.
- * Phase 2: delegate and notify (activated when multi-agent is live).
+ * ACL is enforced at the dispatch layer — all three patterns go through
+ * `assertCanContact()` before the target handler is invoked.
  */
 
 export type AgentMessageType = "query" | "delegate" | "notify";
@@ -137,6 +138,42 @@ export class AgentMessageBus {
           pending.reject(err instanceof Error ? err : new Error(String(err)));
         });
     });
+  }
+
+  /**
+   * Delegate a task to another agent (fire-and-forget).
+   *
+   * The caller returns immediately with a delegationId. The target agent
+   * processes the task asynchronously and is expected to deliver results
+   * proactively (e.g. via Teams proactive messaging) rather than replying
+   * synchronously to the caller.
+   *
+   * @returns delegationId — an opaque string the caller can use for tracking
+   */
+  delegate(
+    from: string,
+    to: string,
+    payload: Record<string, unknown>,
+    opts?: { userId?: string },
+  ): string {
+    // ACL enforced at dispatch — same rules as query/notify
+    this.assertCanContact(from, to);
+    const target = this.subscriptions.get(to);
+    const delegationId = this.nextId();
+
+    if (!target) {
+      console.warn(`[bus] delegate to unregistered agent "${to}" (dropped) id=${delegationId}`);
+      return delegationId;
+    }
+
+    const msg = this.buildMessage("delegate", from, to, { ...payload, delegationId }, opts?.userId);
+    this.messageLog.push(msg);
+
+    target.handler(msg).catch((err) => {
+      console.warn(`[bus] delegate handler error for "${to}" id=${delegationId}:`, err);
+    });
+
+    return delegationId;
   }
 
   /**

@@ -407,6 +407,35 @@ export class OpenClawApp extends LitElement {
   @state() platformMetrics: import("./controllers/platform.js").PlatformMetric[] | null = null;
   @state() platformMetricsLoading = false;
 
+  @state() platformSoulVersions: number[] | null = null;
+  @state() platformSoulVersionsLoading = false;
+  @state() platformSoulVersionsAgentId: string | null = null;
+
+  @state() platformAgentErrors: import("./controllers/platform.js").PlatformMetric[] | null = null;
+  @state() platformAgentErrorsLoading = false;
+  @state() platformAgentErrorsAgentId: string | null = null;
+
+  @state() platformErrorEvents: import("./controllers/platform.js").PlatformErrorEvent[] | null =
+    null;
+  @state() platformErrorEventsLoading = false;
+  @state() platformErrorEventsAgentId: string | null = null;
+
+  @state() platformHealthSamples:
+    | import("./controllers/platform.js").PlatformHealthSample[]
+    | null = null;
+  @state() platformHealthSamplesLoading = false;
+  @state() platformHealthSamplesAgentId: string | null = null;
+  @state() platformRestartLoading = false;
+  @state() platformRestartResult: { ok: boolean; message: string } | null = null;
+  @state() platformAgentResetLoading: string | null = null;
+  @state() platformAgentResetResult: { agentId: string; ok: boolean; message: string } | null =
+    null;
+
+  @state() platformCronLoading = false;
+  @state() platformCronError: string | null = null;
+  @state() platformCronJobs: import("./controllers/platform.js").PlatformCronJob[] | null = null;
+  @state() platformCronRuns: import("./controllers/platform.js").PlatformCronRun[] | null = null;
+
   @state() platformAgents: import("./controllers/platform.js").PlatformAgent[] | null = null;
   @state() platformAgentsLoading = false;
   @state() platformAgentsError: string | null = null;
@@ -414,6 +443,10 @@ export class OpenClawApp extends LitElement {
   @state() platformSoulEditing = false;
   @state() platformSoulDraft: string | null = null;
   @state() platformSoulSaving = false;
+  @state() platformSoulError: string | null = null;
+  @state() platformShowCreateModal = false;
+  @state() platformCreateError: string | null = null;
+  @state() platformDeleteConfirmId: string | null = null;
 
   @state() cronLoading = false;
   @state() cronJobs: CronJob[] = [];

@@ -463,3 +463,11 @@ export type { ProcessedLineMessage } from "../line/markdown-to-line.js";
 
 // Media utilities
 export { loadWebMedia, type WebMediaResult } from "../web/media.js";
+
+// Proactive messaging — allows channel plugins to register a sender so the
+// agent message bus can deliver delegate results outside of active turns.
+export {
+  getProactiveSender,
+  setProactiveSender,
+  type ProactiveSender,
+} from "../platform/proactive-sender.js";

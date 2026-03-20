@@ -29,6 +29,9 @@ export type DashboardViewProps = {
   connectionsLoaded: boolean;
   lastRefreshAt: number | null;
   userName: string | null;
+  platformStats: import("../controllers/platform.ts").PlatformStats | null;
+  platformAgentStats: import("../controllers/platform.ts").AgentStatsEntry[] | null;
+  platformStatsLoading: boolean;
   onRefresh: () => void;
   onRefreshWidget: (mcpName: string) => void;
 };
@@ -88,6 +91,9 @@ export function renderDashboard(props: DashboardViewProps) {
           </div>`
           : nothing
       }
+
+      ${renderPlatformStatsSection(props)}
+
       ${
         !props.connectionsLoaded
           ? html`
@@ -111,6 +117,67 @@ export function renderDashboard(props: DashboardViewProps) {
               </div>
             `
       }
+    </div>
+  `;
+}
+
+function renderPlatformStatsSection(props: DashboardViewProps) {
+  const s = props.platformStats;
+  if (!s && !props.platformStatsLoading) {
+    return nothing;
+  }
+  if (props.platformStatsLoading && !s) {
+    return html`
+      <div style="display: flex; gap: 10px; margin-bottom: 24px; opacity: 0.4; font-size: 12px">
+        Loading platform stats…
+      </div>
+    `;
+  }
+  if (!s) {
+    return nothing;
+  }
+
+  const activeAgents = props.platformAgentStats?.length ?? 0;
+  const errorsToday = s.errorsToday ?? 0;
+
+  return html`
+    <div style="
+      display: flex; flex-wrap: wrap; gap: 12px;
+      margin-bottom: 28px;
+    ">
+      <div style="
+        display: flex; flex-direction: column; gap: 2px;
+        padding: 14px 20px;
+        border: 1px solid var(--border, #333);
+        border-radius: 10px;
+        background: var(--card, #242a31);
+        min-width: 120px;
+      ">
+        <span style="font-size: 26px; font-weight: 800; color: var(--accent, #00A3E1);">${s.agents}</span>
+        <span style="font-size: 11px; opacity: 0.45;">Agents</span>
+      </div>
+      <div style="
+        display: flex; flex-direction: column; gap: 2px;
+        padding: 14px 20px;
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        border-radius: 10px;
+        background: rgba(34, 197, 94, 0.05);
+        min-width: 120px;
+      ">
+        <span style="font-size: 26px; font-weight: 800; color: #22c55e;">${activeAgents}</span>
+        <span style="font-size: 11px; opacity: 0.45;">Active Agents</span>
+      </div>
+      <div style="
+        display: flex; flex-direction: column; gap: 2px;
+        padding: 14px 20px;
+        border: 1px solid ${errorsToday > 0 ? "rgba(239, 68, 68, 0.2)" : "var(--border, #333)"};
+        border-radius: 10px;
+        background: ${errorsToday > 0 ? "rgba(239, 68, 68, 0.05)" : "var(--card, #242a31)"};
+        min-width: 120px;
+      ">
+        <span style="font-size: 26px; font-weight: 800; color: ${errorsToday > 0 ? "var(--danger, #ef4444)" : "var(--text, #e0e0e0)"};">${errorsToday}</span>
+        <span style="font-size: 11px; opacity: 0.45;">Errors Today</span>
+      </div>
     </div>
   `;
 }

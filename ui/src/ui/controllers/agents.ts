@@ -83,6 +83,75 @@ export async function loadCortexConnections(state: AgentsState) {
   }
 }
 
+export async function createAgent(
+  state: AgentsState,
+  params: { name: string; model?: string; workspace?: string },
+): Promise<{ ok: boolean; error?: string; agentId?: string }> {
+  if (!state.client || !state.connected) {
+    return { ok: false, error: "Not connected" };
+  }
+  try {
+    const res = await state.client.request<{
+      ok: boolean;
+      agentId?: string;
+      error?: string;
+    }>("agents.create", params);
+    if (res?.ok) {
+      await loadAgents(state);
+      return { ok: true, agentId: res.agentId };
+    }
+    return { ok: false, error: res?.error ?? "Unknown error" };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function deleteAgent(
+  state: AgentsState,
+  agentId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!state.client || !state.connected) {
+    return { ok: false, error: "Not connected" };
+  }
+  try {
+    const res = await state.client.request<{ ok: boolean; error?: string }>("agents.delete", {
+      agentId,
+    });
+    if (res?.ok) {
+      if (state.agentsSelectedId === agentId) {
+        state.agentsSelectedId = null;
+      }
+      await loadAgents(state);
+      return { ok: true };
+    }
+    return { ok: false, error: res?.error ?? "Unknown error" };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function updateAgent(
+  state: AgentsState,
+  params: { agentId: string; name?: string; model?: string; workspace?: string; avatar?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!state.client || !state.connected) {
+    return { ok: false, error: "Not connected" };
+  }
+  try {
+    const res = await state.client.request<{ ok: boolean; error?: string }>(
+      "agents.update",
+      params,
+    );
+    if (res?.ok) {
+      await loadAgents(state);
+      return { ok: true };
+    }
+    return { ok: false, error: res?.error ?? "Unknown error" };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function initiateOAuthConnect(state: AgentsState, mcpName: string) {
   if (!state.client || !state.connected) {
     return;

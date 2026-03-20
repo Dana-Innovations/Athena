@@ -6,6 +6,7 @@ import {
   type OpenClawConfig,
   type RuntimeEnv,
 } from "openclaw/plugin-sdk";
+import { setProactiveSender } from "../../../src/platform/proactive-sender.js";
 import { createMSTeamsConversationStoreFs } from "./conversation-store-fs.js";
 import type { MSTeamsConversationStore } from "./conversation-store.js";
 import type { MSTeamsAdapter } from "./messenger.js";
@@ -17,6 +18,7 @@ import {
 } from "./resolve-allowlist.js";
 import { getMSTeamsRuntime } from "./runtime.js";
 import { createMSTeamsAdapter, loadMSTeamsSdkWithAuth } from "./sdk.js";
+import { sendMessageMSTeams } from "./send.js";
 import { resolveMSTeamsCredentials } from "./token.js";
 
 export type MonitorMSTeamsOpts = {
@@ -213,6 +215,25 @@ export async function monitorMSTeamsProvider(
       : 8 * MB;
   const conversationStore = opts.conversationStore ?? createMSTeamsConversationStoreFs();
   const pollStore = opts.pollStore ?? createMSTeamsPollStoreFs();
+
+  // Register the Teams proactive sender so the platform bus can deliver
+  // delegate results back to users without an active turn context.
+  try {
+    setProactiveSender({
+      async sendToUser(userId, text, agentDisplayName) {
+        try {
+          await sendMessageMSTeams({ cfg, to: userId, text });
+          log.info(
+            `[platform] proactive message delivered to ${userId} from ${agentDisplayName ?? "agent"}`,
+          );
+        } catch (err) {
+          log.warn(`[platform] proactive send failed for ${userId}: ${err}`);
+        }
+      },
+    });
+  } catch (err) {
+    log.warn(`[platform] failed to register proactive sender: ${err}`);
+  }
 
   log.info(`starting provider (port ${port})`);
 

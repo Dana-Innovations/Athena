@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
  * Intended for production deployments.
  */
 import type {
+  AgentHealthFilter,
+  AgentHealthSample,
   AgentStats,
   AthenaDatabase,
   AuditEvent,
@@ -13,12 +15,15 @@ import type {
   ConversationFilter,
   CronJob,
   CronRun,
+  ErrorEvent,
+  ErrorEventFilter,
   MemoryEntry,
   MemoryFilter,
   Message,
   MessageFilter,
   MetricsFilter,
   PlatformStats,
+  SoulVersion,
   UsageMetric,
 } from "./types.js";
 
@@ -373,9 +378,31 @@ export class AthenaSupabaseProvider implements AthenaDatabase {
           tokensOutput: r.tokens_output ?? 0,
           errors: r.errors ?? 0,
           lastActivityAt: r.date,
+          avgTurnDurationMs: null,
         });
       }
     }
+
+    // Fetch avg turn duration from agent_health per agent
+    const agentIds = Array.from(byAgent.keys());
+    for (const agentId of agentIds) {
+      const hq: Record<string, string> = {
+        agent_id: `eq.${agentId}`,
+        select: "turn_duration_ms",
+        limit: "500",
+      };
+      const health = await this.get<Array<{ turn_duration_ms: number }>>("agent_health", hq).catch(
+        () => [],
+      );
+      if (health.length > 0) {
+        const avg = health.reduce((sum, h) => sum + (h.turn_duration_ms ?? 0), 0) / health.length;
+        const stat = byAgent.get(agentId);
+        if (stat) {
+          stat.avgTurnDurationMs = Math.round(avg);
+        }
+      }
+    }
+
     return Array.from(byAgent.values());
   }
 
@@ -511,6 +538,116 @@ export class AthenaSupabaseProvider implements AthenaDatabase {
     return rows.map(mapAuditEvent);
   }
 
+  // -- Error Events ---------------------------------------------------------
+
+  async logErrorEvent(params: {
+    agentId: string;
+    conversationId?: string;
+    userId?: string;
+    errorType: "tool_error" | "api_error" | "runtime_error";
+    errorMessage?: string;
+    toolName?: string;
+    details?: Record<string, unknown>;
+  }): Promise<string> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    await this.post("agent_error_events", {
+      id,
+      agent_id: params.agentId,
+      conversation_id: params.conversationId ?? null,
+      user_id: params.userId ?? null,
+      error_type: params.errorType,
+      error_message: params.errorMessage ?? null,
+      tool_name: params.toolName ?? null,
+      details: params.details ?? null,
+      created_at: now,
+    });
+    return id;
+  }
+
+  async getErrorEvents(filter?: ErrorEventFilter): Promise<ErrorEvent[]> {
+    const q: Record<string, string> = {
+      order: "created_at.desc",
+      limit: String(filter?.limit ?? 100),
+      offset: String(filter?.offset ?? 0),
+    };
+    if (filter?.agentId) {
+      q.agent_id = `eq.${filter.agentId}`;
+    }
+    if (filter?.conversationId) {
+      q.conversation_id = `eq.${filter.conversationId}`;
+    }
+    if (filter?.since) {
+      q.created_at = `gte.${filter.since}`;
+    }
+    if (filter?.until) {
+      q.created_at = q.created_at
+        ? `and(gte.${filter.since},lte.${filter.until})`
+        : `lte.${filter.until}`;
+    }
+
+    const rows = await this.get<RawErrorEvent[]>("agent_error_events", q);
+    return rows.map(mapErrorEvent);
+  }
+
+  // -- Health / Latency -----------------------------------------------------
+
+  async logHealthSample(params: {
+    agentId: string;
+    conversationId?: string;
+    userId?: string;
+    turnDurationMs: number;
+    responseLatencyMs?: number;
+    status: "success" | "error" | "timeout";
+    errorCode?: string;
+    tokensInput?: number;
+    tokensOutput?: number;
+    model?: string;
+  }): Promise<string> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    await this.post("agent_health", {
+      id,
+      agent_id: params.agentId,
+      conversation_id: params.conversationId ?? null,
+      user_id: params.userId ?? null,
+      turn_duration_ms: params.turnDurationMs,
+      response_latency_ms: params.responseLatencyMs ?? null,
+      status: params.status,
+      error_code: params.errorCode ?? null,
+      tokens_input: params.tokensInput ?? null,
+      tokens_output: params.tokensOutput ?? null,
+      model: params.model ?? null,
+      created_at: now,
+    });
+    return id;
+  }
+
+  async getHealthSamples(filter?: AgentHealthFilter): Promise<AgentHealthSample[]> {
+    const q: Record<string, string> = {
+      order: "created_at.desc",
+      limit: String(filter?.limit ?? 100),
+      offset: String(filter?.offset ?? 0),
+    };
+    if (filter?.agentId) {
+      q.agent_id = `eq.${filter.agentId}`;
+    }
+    if (filter?.status) {
+      q.status = `eq.${filter.status}`;
+    }
+    if (filter?.since) {
+      q.created_at = `gte.${filter.since}`;
+    }
+    if (filter?.until) {
+      q.created_at = q.created_at
+        ? `and(gte.${filter.since},lte.${filter.until})`
+        : `lte.${filter.until}`;
+    }
+
+    const rows = await this.get<RawHealthSample[]>("agent_health", q);
+    return rows.map(mapHealthSample);
+  }
+
   // -- Aggregates -----------------------------------------------------------
 
   async getPlatformStats(): Promise<PlatformStats> {
@@ -572,6 +709,63 @@ export class AthenaSupabaseProvider implements AthenaDatabase {
       stats[table] = rows[0]?.count ?? 0;
     }
     return stats;
+  }
+
+  // -- Soul Versions --------------------------------------------------------
+
+  async saveSoulVersion(params: {
+    agentId: string;
+    content: string;
+    createdBy?: string;
+    keepCount?: number;
+  }): Promise<number> {
+    const keep = params.keepCount ?? 10;
+    // Get current max version
+    const existing = await this.get<{ version: number }[]>("agent_soul_versions", {
+      agent_id: `eq.${params.agentId}`,
+      select: "version",
+      order: "version.desc",
+      limit: "1",
+    });
+    const nextVersion = existing.length > 0 ? existing[0].version + 1 : 1;
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    await this.post("agent_soul_versions", {
+      id,
+      agent_id: params.agentId,
+      version: nextVersion,
+      content: params.content,
+      created_by: params.createdBy ?? null,
+      created_at: now,
+    });
+    // Prune oldest beyond keepCount
+    if (nextVersion > keep) {
+      const pruneBelow = nextVersion - keep;
+      await this.del("agent_soul_versions", {
+        agent_id: `eq.${params.agentId}`,
+        version: `lte.${pruneBelow}`,
+      });
+    }
+    return nextVersion;
+  }
+
+  async listSoulVersions(agentId: string): Promise<{ version: number; createdAt: string }[]> {
+    const rows = await this.get<{ version: number; created_at: string }[]>("agent_soul_versions", {
+      agent_id: `eq.${agentId}`,
+      select: "version,created_at",
+      order: "version.desc",
+      limit: "50",
+    });
+    return rows.map((r) => ({ version: r.version, createdAt: r.created_at }));
+  }
+
+  async getSoulVersion(agentId: string, version: number): Promise<SoulVersion | null> {
+    const rows = await this.get<RawSoulVersion[]>("agent_soul_versions", {
+      agent_id: `eq.${agentId}`,
+      version: `eq.${version}`,
+      limit: "1",
+    });
+    return rows.length > 0 ? mapSoulVersion(rows[0]) : null;
   }
 
   async close(): Promise<void> {
@@ -735,9 +929,56 @@ type RawAuditEvent = {
   created_at: string;
 };
 
+type RawErrorEvent = {
+  id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  user_id: string | null;
+  error_type: string;
+  error_message: string | null;
+  tool_name: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type RawHealthSample = {
+  id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  user_id: string | null;
+  turn_duration_ms: number;
+  response_latency_ms: number | null;
+  status: string;
+  error_code: string | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  model: string | null;
+  created_at: string;
+};
+
+type RawSoulVersion = {
+  id: string;
+  agent_id: string;
+  version: number;
+  content: string;
+  created_by: string | null;
+  created_at: string;
+};
+
 // ---------------------------------------------------------------------------
 // Row mappers
 // ---------------------------------------------------------------------------
+
+function mapSoulVersion(r: RawSoulVersion): SoulVersion {
+  return {
+    id: r.id,
+    agentId: r.agent_id,
+    version: r.version,
+    content: r.content,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+  };
+}
 
 function mapConversation(r: RawConversation): Conversation {
   const tu =
@@ -844,6 +1085,37 @@ function mapAuditEvent(r: RawAuditEvent): AuditEvent {
     action: r.action,
     details,
     ipAddress: r.ip_address,
+    createdAt: r.created_at,
+  };
+}
+
+function mapErrorEvent(r: RawErrorEvent): ErrorEvent {
+  return {
+    id: r.id,
+    agentId: r.agent_id,
+    conversationId: r.conversation_id,
+    userId: r.user_id,
+    errorType: r.error_type as ErrorEvent["errorType"],
+    errorMessage: r.error_message,
+    toolName: r.tool_name,
+    details: r.details,
+    createdAt: r.created_at,
+  };
+}
+
+function mapHealthSample(r: RawHealthSample): AgentHealthSample {
+  return {
+    id: r.id,
+    agentId: r.agent_id,
+    conversationId: r.conversation_id,
+    userId: r.user_id,
+    turnDurationMs: r.turn_duration_ms,
+    responseLatencyMs: r.response_latency_ms,
+    status: r.status as AgentHealthSample["status"],
+    errorCode: r.error_code,
+    tokensInput: r.tokens_input,
+    tokensOutput: r.tokens_output,
+    model: r.model,
     createdAt: r.created_at,
   };
 }

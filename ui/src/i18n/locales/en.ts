@@ -25,6 +25,8 @@ export const en: TranslationMap = {
     settings: "Settings",
     expand: "Expand sidebar",
     collapse: "Collapse sidebar",
+    command: "Command",
+    connections: "Connections",
   },
   tabs: {
     dashboard: "Dashboard",
@@ -49,7 +51,11 @@ export const en: TranslationMap = {
     "platform-conversations": "Conversations",
     "platform-memory": "Memory",
     "platform-audit": "Audit Log",
+    "platform-cron": "Cron Jobs",
+    "platform-deployment": "Deployment",
     admin: "Admin",
+    "command-center": "Command Center",
+    "platform-connections": "Cortex Connections",
   },
   subtitles: {
     dashboard: "Your personalized overview of connected services and activity.",
@@ -74,7 +80,12 @@ export const en: TranslationMap = {
     "platform-conversations": "Browse and search conversations across all agents.",
     "platform-memory": "Structured knowledge stored by agents across conversations.",
     "platform-audit": "All tool calls, config changes, and admin actions.",
+    "platform-cron": "Scheduled jobs, run history, and next-run times.",
+    "platform-deployment":
+      "Live topology of agents, gateways, and integrations with per-agent health metrics.",
     admin: "User management, usage analytics, and MCP configuration.",
+    "command-center": "Org-chart of Athena's agents and Sonance departments.",
+    "platform-connections": "Manage cortex tool integrations and OAuth connections.",
   },
   overview: {
     access: {

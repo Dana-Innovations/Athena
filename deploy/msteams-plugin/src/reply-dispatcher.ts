@@ -64,11 +64,29 @@ export function createMSTeamsReplyDispatcher(params: {
   });
   const chunkMode = core.channel.text.resolveChunkMode(params.cfg, "msteams");
 
+  // Dedup guard: the core reply dispatcher may call deliver() for both
+  // a streaming chunk and the final accumulated reply, producing the
+  // same text twice for short/instant responses. Skip if the exact
+  // same text was delivered within the dedup window.
+  const DEDUP_WINDOW_MS = 3000;
+  let lastDeliveredText = "";
+  let lastDeliveredTs = 0;
+
   const { dispatcher, replyOptions, markDispatchIdle } =
     core.channel.reply.createReplyDispatcherWithTyping({
       ...prefixOptions,
       humanDelay: core.channel.reply.resolveHumanDelayConfig(params.cfg, params.agentId),
       deliver: async (payload) => {
+        const payloadText = (payload.text ?? "").trim();
+        const now = Date.now();
+        if (
+          payloadText &&
+          payloadText === lastDeliveredText &&
+          now - lastDeliveredTs < DEDUP_WINDOW_MS
+        ) {
+          return;
+        }
+
         const tableMode = core.channel.text.resolveMarkdownTableMode({
           cfg: params.cfg,
           channel: "msteams",
@@ -80,6 +98,8 @@ export function createMSTeamsReplyDispatcher(params: {
           tableMode,
           chunkMode,
         });
+        if (messages.length === 0) return;
+
         const mediaMaxBytes = resolveChannelMediaMaxBytes({
           cfg: params.cfg,
           resolveChannelLimitMb: ({ cfg }) => cfg.channels?.msteams?.mediaMaxMb,
@@ -91,7 +111,6 @@ export function createMSTeamsReplyDispatcher(params: {
           conversationRef: params.conversationRef,
           context: params.context,
           messages,
-          // Enable default retry/backoff for throttling/transient failures.
           retry: {},
           onRetry: (event) => {
             params.log.debug?.("retrying send", {
@@ -104,6 +123,8 @@ export function createMSTeamsReplyDispatcher(params: {
           mediaMaxBytes,
         });
         if (ids.length > 0) {
+          lastDeliveredText = payloadText;
+          lastDeliveredTs = now;
           params.onSentMessageIds?.(ids);
         }
       },

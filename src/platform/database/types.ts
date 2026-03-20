@@ -98,6 +98,18 @@ export type AuditEvent = {
   createdAt: string;
 };
 
+export type ErrorEvent = {
+  id: string;
+  agentId: string;
+  conversationId: string | null;
+  userId: string | null;
+  errorType: "tool_error" | "api_error" | "runtime_error";
+  errorMessage: string | null;
+  toolName: string | null;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 // ---------------------------------------------------------------------------
 // Query options
 // ---------------------------------------------------------------------------
@@ -141,6 +153,20 @@ export type AuditFilter = ListOptions & {
   until?: string;
 };
 
+export type ErrorEventFilter = ListOptions & {
+  agentId?: string;
+  conversationId?: string;
+  since?: string;
+  until?: string;
+};
+
+export type AgentHealthFilter = ListOptions & {
+  agentId?: string;
+  status?: "success" | "error" | "timeout";
+  since?: string;
+  until?: string;
+};
+
 // ---------------------------------------------------------------------------
 // Aggregate types
 // ---------------------------------------------------------------------------
@@ -163,6 +189,31 @@ export type AgentStats = {
   tokensOutput: number;
   errors: number;
   lastActivityAt: string | null;
+  avgTurnDurationMs: number | null;
+};
+
+export type SoulVersion = {
+  id: string;
+  agentId: string;
+  version: number;
+  content: string;
+  createdBy: string | null;
+  createdAt: string;
+};
+
+export type AgentHealthSample = {
+  id: string;
+  agentId: string;
+  conversationId: string | null;
+  userId: string | null;
+  turnDurationMs: number;
+  responseLatencyMs: number | null;
+  status: "success" | "error" | "timeout";
+  errorCode: string | null;
+  tokensInput: number | null;
+  tokensOutput: number | null;
+  model: string | null;
+  createdAt: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -282,6 +333,63 @@ export interface AthenaDatabase {
   }): string | Promise<string>;
 
   getAuditEvents(filter?: AuditFilter): AuditEvent[] | Promise<AuditEvent[]>;
+
+  // -- Error Events ---------------------------------------------------------
+
+  logErrorEvent(params: {
+    agentId: string;
+    conversationId?: string;
+    userId?: string;
+    errorType: "tool_error" | "api_error" | "runtime_error";
+    errorMessage?: string;
+    toolName?: string;
+    details?: Record<string, unknown>;
+  }): string | Promise<string>;
+
+  getErrorEvents(filter?: ErrorEventFilter): ErrorEvent[] | Promise<ErrorEvent[]>;
+
+  // -- Health / Latency -----------------------------------------------------
+
+  logHealthSample(params: {
+    agentId: string;
+    conversationId?: string;
+    userId?: string;
+    turnDurationMs: number;
+    responseLatencyMs?: number;
+    status: "success" | "error" | "timeout";
+    errorCode?: string;
+    tokensInput?: number;
+    tokensOutput?: number;
+    model?: string;
+  }): string | Promise<string>;
+
+  getHealthSamples(filter?: AgentHealthFilter): AgentHealthSample[] | Promise<AgentHealthSample[]>;
+
+  // -- Soul Versions --------------------------------------------------------
+
+  /**
+   * Save a new SOUL.md version for an agent.
+   * Automatically assigns the next version number (max version + 1).
+   * Prunes oldest versions when count exceeds keepCount (default 10).
+   * Returns the new version number.
+   */
+  saveSoulVersion(params: {
+    agentId: string;
+    content: string;
+    createdBy?: string;
+    keepCount?: number;
+  }): number | Promise<number>;
+
+  /** List all versions for an agent (newest first), without content. */
+  listSoulVersions(
+    agentId: string,
+  ): { version: number; createdAt: string }[] | Promise<{ version: number; createdAt: string }[]>;
+
+  /** Fetch the full content of a specific version. */
+  getSoulVersion(
+    agentId: string,
+    version: number,
+  ): SoulVersion | null | Promise<SoulVersion | null>;
 
   // -- Aggregates -----------------------------------------------------------
 

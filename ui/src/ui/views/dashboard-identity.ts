@@ -8,6 +8,7 @@
 import { html, nothing } from "lit";
 import type { MCPConnection } from "../controllers/agents.ts";
 import type { DashboardStats } from "../controllers/dashboard-stats.ts";
+import type { AgentStatsEntry, PlatformStats } from "../controllers/platform.ts";
 import type { CortexAuthSession } from "../cortex-auth.ts";
 
 export type IdentityDashboardProps = {
@@ -17,6 +18,9 @@ export type IdentityDashboardProps = {
   dashboardStats: DashboardStats | null;
   dashboardStatsLoading: boolean;
   connected: boolean;
+  platformStats: PlatformStats | null;
+  platformAgentStats: AgentStatsEntry[] | null;
+  platformStatsLoading: boolean;
   onLoadConnections: () => void;
   onConnectMcp: (mcpName: string) => void;
 };
@@ -105,6 +109,9 @@ export function renderDashboardIdentity(props: IdentityDashboardProps) {
       <!-- Usage Stats -->
       ${renderUsageStats(props)}
 
+      <!-- Platform Stats -->
+      ${renderPlatformStats(props)}
+
       <!-- Cortex Connections -->
       <section class="identity-section">
         <div class="identity-section__header">
@@ -149,6 +156,62 @@ export function renderDashboardIdentity(props: IdentityDashboardProps) {
         </div>
       </section>
     </div>
+  `;
+}
+
+function renderPlatformStats(props: IdentityDashboardProps) {
+  const s = props.platformStats;
+  if (!s && !props.platformStatsLoading) {
+    return nothing;
+  }
+  if (props.platformStatsLoading && !s) {
+    return nothing;
+  }
+  if (!s) {
+    return nothing;
+  }
+
+  const activeAgents = props.platformAgentStats?.length ?? 0;
+  const errorsToday = s.errorsToday ?? 0;
+
+  return html`
+    <section class="identity-section" style="padding-top: 0; margin-top: -8px;">
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px;">
+        <div style="
+          display: flex; flex-direction: column; gap: 2px;
+          padding: 14px 20px;
+          border: 1px solid var(--border, #333);
+          border-radius: 10px;
+          background: var(--card, #242a31);
+          min-width: 110px;
+        ">
+          <span style="font-size: 26px; font-weight: 800; color: var(--accent, #00A3E1);">${s.agents}</span>
+          <span style="font-size: 11px; opacity: 0.45; text-transform: uppercase; letter-spacing: 0.06em;">Agents</span>
+        </div>
+        <div style="
+          display: flex; flex-direction: column; gap: 2px;
+          padding: 14px 20px;
+          border: 1px solid rgba(34, 197, 94, 0.25);
+          border-radius: 10px;
+          background: rgba(34, 197, 94, 0.05);
+          min-width: 110px;
+        ">
+          <span style="font-size: 26px; font-weight: 800; color: #22c55e;">${activeAgents}</span>
+          <span style="font-size: 11px; opacity: 0.45; text-transform: uppercase; letter-spacing: 0.06em;">Active Agents</span>
+        </div>
+        <div style="
+          display: flex; flex-direction: column; gap: 2px;
+          padding: 14px 20px;
+          border: 1px solid ${errorsToday > 0 ? "rgba(239, 68, 68, 0.25)" : "var(--border, #333)"};
+          border-radius: 10px;
+          background: ${errorsToday > 0 ? "rgba(239, 68, 68, 0.05)" : "var(--card, #242a31)"};
+          min-width: 110px;
+        ">
+          <span style="font-size: 26px; font-weight: 800; color: ${errorsToday > 0 ? "var(--danger, #ef4444)" : "var(--text, #e0e0e0)"};">${errorsToday}</span>
+          <span style="font-size: 11px; opacity: 0.45; text-transform: uppercase; letter-spacing: 0.06em;">Errors Today</span>
+        </div>
+      </div>
+    </section>
   `;
 }
 

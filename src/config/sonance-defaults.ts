@@ -177,12 +177,10 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
   };
 
   // Platform agent overlay: load agent.yaml definitions and merge into config.
-  // Only applies when agents/definitions/ exists and contains valid YAMLs.
-  // Explicit openclaw.json agents.list entries take precedence.
-  const existingAgentsList = (
-    (baseConfig as Record<string, unknown>).agents as Record<string, unknown> | undefined
-  )?.list;
-  if (!Array.isArray(existingAgentsList) || existingAgentsList.length === 0) {
+  // Always applies when agents/definitions/ exists and contains valid YAMLs.
+  // Platform agents are merged into the list alongside any existing entries
+  // (e.g. cortex-* bridge agents auto-synced by the plugin).
+  {
     try {
       const stateDir =
         process.env.OPENCLAW_STATE_DIR?.trim() ||
@@ -205,9 +203,20 @@ export function applySonanceDefaults<T extends Record<string, unknown>>(config: 
         const overlayAlsoAllow = overlay.tools?.alsoAllow ?? [];
         const mergedAlsoAllow = [...new Set([...existingAlsoAllow, ...overlayAlsoAllow])];
 
+        // Merge platform agents INTO the existing list (don't replace).
+        // This preserves cortex-* bridge agents that syncMcpAgent wrote to the file.
+        const existingList = Array.isArray(existingAgents.list)
+          ? (existingAgents.list as Array<Record<string, unknown>>)
+          : [];
+        const overlayIds = new Set(overlay.agents.list.map((a) => a.id));
+        const keptExisting = existingList.filter(
+          (a) => typeof a.id === "string" && !overlayIds.has(a.id),
+        );
+        const mergedList = [...overlay.agents.list, ...keptExisting];
+
         (baseConfig as Record<string, unknown>).agents = {
           ...existingAgents,
-          list: overlay.agents.list,
+          list: mergedList,
           defaults: {
             ...(existingAgents.defaults as Record<string, unknown> | undefined),
             ...overlay.agents.defaults,

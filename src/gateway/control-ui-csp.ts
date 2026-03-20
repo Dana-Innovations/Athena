@@ -25,9 +25,9 @@ export function buildControlUiCspHeader(opts?: {
     "object-src 'none'",
     "frame-ancestors 'none'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: https:",
-    "font-src 'self'",
+    "font-src 'self' https://fonts.gstatic.com",
     `connect-src ${connectSrc}`,
   ].join("; ");
 }

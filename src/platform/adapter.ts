@@ -16,10 +16,14 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
+import { subscribeAgentToBus } from "./agent-bus-tool.js";
+import { createAthenaDatabase } from "./database/index.js";
 import { getAgentMessageBus } from "./message-bus.js";
 import { resolveStorageProvider, type FileStorageProvider } from "./persistence/index.js";
 import { writeSoulVersioned } from "./persistence/soul-versioning.js";
+import { getProactiveSender } from "./proactive-sender.js";
 import { loadAgentRegistry, type RegistryEntry } from "./registry.js";
+import { getAgentRuntime } from "./runtime.js";
 
 export type AgentConfigFragment = {
   id: string;
@@ -149,14 +153,14 @@ function mapAgentToConfig(
       primary: def.spec.runtime.model.primary,
       ...(def.spec.runtime.model.fallback ? { fallback: def.spec.runtime.model.fallback } : {}),
     },
-    ...(toolsAllow || toolsDeny
-      ? {
-          tools: {
-            ...(toolsAllow ? { alsoAllow: toolsAllow } : {}),
-            ...(toolsDeny ? { deny: toolsDeny } : {}),
-          },
-        }
-      : {}),
+    tools: {
+      // Specialists get the restricted "sonance" profile so the LLM only sees
+      // the tools it needs (via alsoAllow). Orchestrators keep "full" so they
+      // retain access to exec, write, browser, etc.
+      ...(def.spec.role === "specialist" ? { profile: "sonance" } : {}),
+      ...(toolsAllow ? { alsoAllow: toolsAllow } : {}),
+      ...(toolsDeny ? { deny: toolsDeny } : {}),
+    },
     ...(allowAgents && allowAgents.length > 0 ? { subagents: { allowAgents } } : {}),
   };
 }
@@ -169,6 +173,33 @@ type OverlayCache = {
 };
 
 let overlayCache: OverlayCache | null = null;
+
+/**
+ * Seed v1 SOUL.md for any agent that has no saved versions yet.
+ * Fire-and-forget — called once when the overlay is first built.
+ */
+async function seedSoulVersions(entries: RegistryEntry[]): Promise<void> {
+  const dbInstance = createAthenaDatabase();
+  for (const entry of entries) {
+    if (!entry.soulContent) {
+      continue;
+    }
+    const agentId = entry.definition.metadata.name;
+    try {
+      const versions = await Promise.resolve(dbInstance.listSoulVersions(agentId));
+      if (versions.length === 0) {
+        await Promise.resolve(
+          dbInstance.saveSoulVersion({ agentId, content: entry.soulContent, createdBy: "system" }),
+        );
+        console.log(`[platform] seeded SOUL.md v1 for agent: ${agentId}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[platform] failed to seed soul version for ${agentId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
 
 /**
  * Build a fingerprint from mtimes of all agent definition source files.
@@ -251,6 +282,11 @@ export function loadPlatformAgentOverlay(stateDir: string): PlatformConfigOverla
     return null;
   }
 
+  // Seed v1 SOUL.md for any agent that has no saved versions yet.
+  seedSoulVersions(registry.agents).catch((err) =>
+    console.warn(`[platform] soul version seeding failed: ${err}`),
+  );
+
   for (const err of registry.errors) {
     console.warn(`[platform] agent validation error in ${err.agentDir}:`);
     for (const issue of err.issues) {
@@ -282,12 +318,50 @@ export function loadPlatformAgentOverlay(stateDir: string): PlatformConfigOverla
   );
   const uniqueToolAllows = [...new Set(allToolAllows)];
 
-  // Configure inter-agent communication ACLs on the message bus
+  // Configure inter-agent communication ACLs and subscribe agents to the bus.
+  // The handler receives inter-agent queries and returns the agent's SOUL context
+  // plus the question — the calling agent's LLM incorporates the response.
   const bus = getAgentMessageBus();
   for (const entry of registry.agents) {
+    const agentId = entry.definition.metadata.name;
     const canContact = entry.definition.spec.collaboration?.canContact ?? [];
-    bus.setAcl(entry.definition.metadata.name, canContact);
+    bus.setAcl(agentId, canContact);
+
+    if (!bus.isRegistered(agentId)) {
+      const soulContent = entry.soulContent ?? "";
+      const model = entry.definition.spec.runtime.model.primary;
+      const displayName = entry.definition.metadata.displayName;
+      subscribeAgentToBus(agentId, async (msgType, question, userId) => {
+        const runtime = getAgentRuntime();
+        const result = await runtime.run(
+          agentId,
+          [
+            { role: "system", content: soulContent },
+            { role: "user", content: question },
+          ],
+          { userId, model },
+        );
+
+        // For delegate (fire-and-forget) messages, deliver the result proactively
+        // to the user rather than returning it to the caller (who isn't waiting).
+        if (msgType === "delegate" && userId && result.text) {
+          getProactiveSender()
+            .sendToUser(userId, result.text, displayName)
+            .catch((err) =>
+              console.warn(`[platform] proactive send failed for ${agentId} → ${userId}: ${err}`),
+            );
+        }
+
+        return result.text;
+      });
+    }
   }
+
+  console.log(`[platform] message bus agents: [${getAgentMessageBus().listAgents().join(", ")}]`);
+
+  // Include inter-agent tools in the allowlist so agents with collaboration
+  // config can use query, delegate, and notify patterns.
+  uniqueToolAllows.push("ask_agent", "delegate_to_agent", "notify_agent");
 
   const result: PlatformConfigOverlay = {
     agents: {

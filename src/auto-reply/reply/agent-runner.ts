@@ -17,6 +17,13 @@ import {
 import type { TypingMode } from "../../config/types.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
+import {
+  getCachedConversationId,
+  persistAssistantMessage,
+  persistErrorEvent,
+  persistHealthSample,
+  persistUsage,
+} from "../../platform/persistence.js";
 import { defaultRuntime } from "../../runtime.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-format.js";
 import type { OriginatingChannelType, TemplateContext } from "../templating.js";
@@ -605,6 +612,63 @@ export async function runReplyAgent(params: {
       } catch {
         // Silent failure — audit is best-effort
       }
+    }
+
+    // -- Platform DB: persist assistant reply + usage (fire-and-forget) -----
+    if (sessionKey) {
+      const replyText = finalPayloads
+        .map((p) => p.text)
+        .filter(Boolean)
+        .join("\n");
+      const convId = getCachedConversationId(sessionKey);
+      const agentId = resolveAgentIdFromSessionKey(sessionKey);
+      const userId = sessionCtx.SenderId ?? sessionCtx.From ?? "unknown";
+
+      if (convId && replyText) {
+        persistAssistantMessage({
+          conversationId: convId,
+          agentId,
+          userId,
+          content: replyText,
+          tokenCount: usage?.output ?? usage?.total,
+          tokensInput: usage?.input,
+          tokensOutput: usage?.output,
+        });
+        persistUsage({
+          agentId,
+          messages: 2,
+          conversations: 1,
+          tokensInput: usage?.input ?? 0,
+          tokensOutput: usage?.output ?? 0,
+        });
+      }
+
+      // Record individual error events for any error payloads
+      const hasError = finalPayloads.some((p) => p.isError);
+      for (const payload of finalPayloads) {
+        if (payload.isError) {
+          persistErrorEvent({
+            agentId,
+            conversationId: convId,
+            userId,
+            errorType: "runtime_error",
+            errorMessage: typeof payload.text === "string" ? payload.text : undefined,
+          });
+        }
+      }
+
+      // Record health / latency sample for every completed turn
+      persistHealthSample({
+        agentId,
+        conversationId: convId,
+        userId,
+        turnDurationMs: Date.now() - runStartedAt,
+        status: hasError ? "error" : "success",
+        errorCode: hasError ? "runtime_error" : undefined,
+        tokensInput: usage?.input,
+        tokensOutput: usage?.output,
+        model: modelUsed,
+      });
     }
 
     return finalizeWithFollowup(

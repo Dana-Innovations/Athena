@@ -441,9 +441,10 @@ export async function sendMSTeamsMessages(params: {
     }
   };
 
-  const sendMessagesInContext = async (ctx: SendContext): Promise<string[]> => {
+  const sendMessagesSlice = async (ctx: SendContext, startIdx: number): Promise<string[]> => {
     const messageIds: string[] = [];
-    for (const [idx, message] of messages.entries()) {
+    for (let idx = startIdx; idx < messages.length; idx++) {
+      const message = messages[idx]!;
       const response = await sendWithRetry(
         async () =>
           await ctx.sendActivity(
@@ -462,12 +463,49 @@ export async function sendMSTeamsMessages(params: {
     return messageIds;
   };
 
+  // Track how many messages were delivered via thread mode so the proactive
+  // fallback only sends the remainder (avoids duplicate messages).
+  let threadDeliveredCount = 0;
+
   if (params.replyStyle === "thread") {
     const ctx = params.context;
     if (!ctx) {
       throw new Error("Missing context for replyStyle=thread");
     }
-    return await sendMessagesInContext(ctx);
+    try {
+      const messageIds: string[] = [];
+      for (let idx = 0; idx < messages.length; idx++) {
+        const message = messages[idx]!;
+        const response = await sendWithRetry(
+          async () =>
+            await ctx.sendActivity(
+              await buildActivity(
+                message,
+                params.conversationRef,
+                params.tokenProvider,
+                params.sharePointSiteId,
+                params.mediaMaxBytes,
+              ),
+            ),
+          { messageIndex: idx, messageCount: messages.length },
+        );
+        messageIds.push(extractMessageId(response) ?? "unknown");
+        threadDeliveredCount++;
+      }
+      return messageIds;
+    } catch (threadErr) {
+      const msg = threadErr instanceof Error ? threadErr.message : String(threadErr);
+      if (msg.includes("proxy") && msg.includes("revoked")) {
+        // Turn context expired — fall through to proactive send for remaining
+        // messages only. Already-delivered messages are visible to the user.
+      } else {
+        throw threadErr;
+      }
+    }
+  }
+
+  if (threadDeliveredCount >= messages.length) {
+    return [];
   }
 
   const baseRef = buildConversationReference(params.conversationRef);
@@ -478,7 +516,7 @@ export async function sendMSTeamsMessages(params: {
 
   const messageIds: string[] = [];
   await params.adapter.continueConversation(params.appId, proactiveRef, async (ctx) => {
-    messageIds.push(...(await sendMessagesInContext(ctx)));
+    messageIds.push(...(await sendMessagesSlice(ctx, threadDeliveredCount)));
   });
   return messageIds;
 }

@@ -27,7 +27,87 @@ function resolveDefaultGroupPolicy(cfg: unknown): string | undefined {
   }
   return undefined;
 }
-import { handleAgentsListCommand } from "../../../../src/platform/router.js";
+// Lazy-loaded platform router — lives in the main repo, not in this extension.
+// Resolves repo root by locating openclaw's package.json via require.resolve.
+import { existsSync } from "node:fs";
+import path from "node:path";
+type RouterModule = {
+  handleAgentsListCommand: (root: string) => string;
+  resolveAgentFromMessage: (
+    body: string,
+    userId: string,
+    root: string,
+  ) => {
+    agentId: string;
+    matchedBy: "intent" | "command" | "default";
+    strippedBody: string;
+    isSwitchCommand: boolean;
+  } | null;
+  clearActiveAgent?: (userId: string) => void;
+};
+let _routerCache: RouterModule | null = null;
+function findRepoRoot(): string {
+  if (process.env.ATHENA_REPO_ROOT) return process.env.ATHENA_REPO_ROOT;
+  // Walk up from the gateway binary's module dir to find package.json with "openclaw"
+  try {
+    const pkgPath = require.resolve("openclaw/package.json");
+    return path.dirname(pkgPath);
+  } catch {
+    /* not resolvable via node_modules */
+  }
+  // Fallback: walk up from cwd
+  let dir = process.cwd();
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(path.join(dir, "agents", "definitions"))) return dir;
+    if (existsSync(path.join(dir, "package.json")) && existsSync(path.join(dir, "src", "platform")))
+      return dir;
+    dir = path.dirname(dir);
+  }
+  return process.cwd();
+}
+function getPlatformRouter(): RouterModule {
+  if (_routerCache) return _routerCache;
+  const repoRoot = findRepoRoot();
+  try {
+    _routerCache = require(path.join(repoRoot, "src", "platform", "router.js"));
+  } catch {
+    try {
+      _routerCache = require(path.join(repoRoot, "src", "platform", "router.ts"));
+    } catch {
+      // Return no-op router if not found — routing falls back to default agent
+      _routerCache = {
+        handleAgentsListCommand: () => "Agent listing unavailable (platform router not found).",
+        resolveAgentFromMessage: () => null,
+      };
+    }
+  }
+  return _routerCache!;
+}
+type RoundtableModule = {
+  detectRoundtableAgents: (rawHtml: string, registryRoot: string) => string[];
+  coordinateRoundtable: (
+    agentIds: string[],
+    message: string,
+    userId: string,
+  ) => Promise<{ sessionId: string; responses: unknown[]; totalDurationMs: number }>;
+  formatRoundtableResponse: (result: unknown) => string;
+};
+let _roundtableCache: RoundtableModule | null = null;
+function getRoundtableModule(): RoundtableModule | null {
+  if (_roundtableCache) return _roundtableCache;
+  const repoRoot = findRepoRoot();
+  try {
+    _roundtableCache = require(path.join(repoRoot, "src", "platform", "roundtable.js"));
+  } catch {
+    try {
+      _roundtableCache = require(path.join(repoRoot, "src", "platform", "roundtable.ts"));
+    } catch {
+      return null;
+    }
+  }
+  return _roundtableCache!;
+}
+
 import {
   buildMSTeamsAttachmentPlaceholder,
   buildMSTeamsMediaPayload,
@@ -178,6 +258,12 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       DEFAULT_GROUP_HISTORY_LIMIT,
   );
   const conversationHistories = new Map<string, HistoryEntry[]>();
+
+  // DM turn history: stores user + bot turns for 1:1 conversations so each
+  // new message has context of the prior exchange (user messages + bot replies).
+  type DmTurnEntry = { role: "user" | "assistant"; body: string; timestamp: number };
+  const DM_TURN_LIMIT = 20; // max entries kept (10 user + 10 bot turns)
+  const dmTurnHistories = new Map<string, DmTurnEntry[]>();
   const inboundDebounceMs = core.channel.debounce.resolveInboundDebounceMs({
     cfg,
     channel: "msteams",
@@ -477,10 +563,16 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
 
     // --- Platform agent routing (intent-based multi-agent dispatch) ---
     const lowerBody = rawBody.trim().toLowerCase();
+
+    // Clear sticky agent on session reset so follow-ups go to the default agent.
+    if (lowerBody === "!newchat" || lowerBody === "/newchat") {
+      getPlatformRouter().clearActiveAgent?.(senderId);
+    }
+
     if (lowerBody === "!agents") {
       try {
         const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
-        const agentsReply = handleAgentsListCommand(registryRoot);
+        const agentsReply = getPlatformRouter().handleAgentsListCommand(registryRoot);
         await context.sendActivity(agentsReply);
       } catch (listErr) {
         log.debug?.("agents list failed", { error: String(listErr) });
@@ -489,6 +581,61 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       return;
     }
 
+    // Slash-command + intent-based agent dispatch (e.g. /scheduler find a time)
+    const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
+
+    // --- Roundtable: detect multi-agent @mentions and fan out in parallel ---
+    const roundtable = getRoundtableModule();
+    if (roundtable) {
+      const roundtableAgentIds = roundtable.detectRoundtableAgents(rawText, registryRoot);
+      if (roundtableAgentIds.length >= 2) {
+        log.info("roundtable detected", {
+          agents: roundtableAgentIds,
+          strippedBody: text.slice(0, 80),
+        });
+        try {
+          const result = await roundtable.coordinateRoundtable(roundtableAgentIds, text, senderId);
+          const formatted = roundtable.formatRoundtableResponse(result);
+          await context.sendActivity(formatted);
+          log.info("roundtable complete", {
+            sessionId: result.sessionId,
+            totalDurationMs: result.totalDurationMs,
+            agents: roundtableAgentIds,
+          });
+        } catch (rtErr) {
+          log.error("roundtable failed", { error: String(rtErr) });
+          try {
+            await context.sendActivity(
+              `⚠️ Roundtable failed: ${rtErr instanceof Error ? rtErr.message : String(rtErr)}`,
+            );
+          } catch {
+            /* best effort */
+          }
+        }
+        return;
+      }
+    }
+    // --- End roundtable ---
+
+    const platformRoute = getPlatformRouter().resolveAgentFromMessage(
+      rawBody,
+      senderId,
+      registryRoot,
+    );
+    let platformAgentOverride: string | undefined;
+    let platformStrippedBody: string | undefined;
+    if (
+      platformRoute &&
+      (platformRoute.matchedBy === "command" || platformRoute.matchedBy === "intent")
+    ) {
+      platformAgentOverride = platformRoute.agentId;
+      platformStrippedBody = platformRoute.strippedBody;
+      log.info("platform agent routed", {
+        agentId: platformRoute.agentId,
+        matchedBy: platformRoute.matchedBy,
+        strippedBody: platformRoute.strippedBody.slice(0, 80),
+      });
+    }
     // --- End platform agent routing ---
 
     const cmdResult = await handleChatCommandWithConnect(rawBody, senderId);
@@ -554,6 +701,29 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
         id: isDirectMessage ? senderId : conversationId,
       },
     });
+
+    // Override route when platform agent dispatch matched a non-default agent.
+    // Rebuild the session key with the correct agent ID so parseAgentSessionKey
+    // resolves the right agent downstream (format: agent:{agentId}:{rest}).
+    if (platformAgentOverride) {
+      (route as Record<string, unknown>).agentId = platformAgentOverride;
+      const existingKey = route.sessionKey ?? "";
+      const agentPrefix = /^agent:[^:]+:/.exec(existingKey);
+      if (agentPrefix) {
+        const rest = existingKey.slice(agentPrefix[0].length);
+        (route as Record<string, unknown>).sessionKey = `agent:${platformAgentOverride}:${rest}`;
+      } else {
+        (route as Record<string, unknown>).sessionKey =
+          `agent:${platformAgentOverride}:${existingKey}`;
+      }
+      rawBody = platformStrippedBody ?? rawBody;
+
+      // Remove per-user workspace override so the targeted agent uses its own
+      // workspace (set by the platform adapter) instead of the user's profile dir.
+      // This ensures the agent's SOUL.md is loaded, not the default profile template.
+      const agentsDefaults = (perUserCfg.agents?.defaults ?? {}) as Record<string, unknown>;
+      delete agentsDefaults.workspace;
+    }
 
     const preview = rawBody.replace(/\s+/g, " ").slice(0, 160);
     const inboundLabel = isDirectMessage
@@ -663,6 +833,19 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       });
     }
 
+    // Record this DM user turn BEFORE dispatch so it's available for future messages.
+    if (isDirectMessage) {
+      const dmHistory = dmTurnHistories.get(conversationId) ?? [];
+      dmHistory.push({ role: "user", body: rawBody, timestamp: Date.now() });
+      if (dmHistory.length > DM_TURN_LIMIT) dmHistory.splice(0, dmHistory.length - DM_TURN_LIMIT);
+      dmTurnHistories.set(conversationId, dmHistory);
+    }
+
+    // Build prior-turn history for DMs from all entries except the one we just added.
+    const dmPriorTurns = isDirectMessage
+      ? (dmTurnHistories.get(conversationId) ?? []).slice(0, -1)
+      : [];
+
     const inboundHistory =
       isRoomish && historyKey && historyLimit > 0
         ? (conversationHistories.get(historyKey) ?? []).map((entry) => ({
@@ -670,7 +853,13 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
             body: entry.body,
             timestamp: entry.timestamp,
           }))
-        : undefined;
+        : dmPriorTurns.length > 0
+          ? dmPriorTurns.map((entry) => ({
+              sender: entry.role === "user" ? senderName : "Athena",
+              body: entry.body,
+              timestamp: entry.timestamp,
+            }))
+          : undefined;
 
     const ctxPayload = core.channel.reply.finalizeInboundContext({
       Body: combinedBody,
@@ -732,6 +921,16 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       sharePointSiteId,
     });
 
+    // Capture bot reply text for DM history by intercepting sendFinalReply.
+    const capturedBotReplyParts: string[] = [];
+    if (isDirectMessage) {
+      const orig = dispatcher.sendFinalReply.bind(dispatcher);
+      dispatcher.sendFinalReply = (payload) => {
+        if (payload.text) capturedBotReplyParts.push(payload.text);
+        return orig(payload);
+      };
+    }
+
     log.info("dispatching to agent", { sessionKey: route.sessionKey });
     try {
       const { queuedFinal, counts } = await core.channel.reply.dispatchReplyFromConfig({
@@ -743,6 +942,18 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
 
       markDispatchIdle();
       log.info("dispatch complete", { queuedFinal, counts });
+
+      // Record bot reply to DM turn history so the next message has context.
+      if (isDirectMessage && capturedBotReplyParts.length > 0) {
+        const botReply = capturedBotReplyParts.join("\n").trim();
+        if (botReply) {
+          const dmHistory = dmTurnHistories.get(conversationId) ?? [];
+          dmHistory.push({ role: "assistant", body: botReply, timestamp: Date.now() });
+          if (dmHistory.length > DM_TURN_LIMIT)
+            dmHistory.splice(0, dmHistory.length - DM_TURN_LIMIT);
+          dmTurnHistories.set(conversationId, dmHistory);
+        }
+      }
 
       // Mark onboarding complete after first successful agent response
       try {

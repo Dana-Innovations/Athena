@@ -27,6 +27,7 @@ type IntentRule = {
 };
 
 const AGENT_PREFIX_RE = /^[!@](\S+)/;
+const SLASH_COMMAND_RE = /^\/(\S+)\s*(.*)/s;
 
 /**
  * Cached intent rules built from agent definitions.
@@ -122,9 +123,25 @@ export function resolveAgentFromMessage(
   const trimmed = messageBody.trim();
   const { rules, defaultAgentId } = getIntentRules(registryRoot);
 
-  // 1. Explicit agent prefix (escape hatch — still works if needed)
+  // 1a. Slash command (/scheduler find a time, /analyst pull Q4 data)
+  const slashResult = tryParseSlashCommand(trimmed, registryRoot);
+  if (slashResult) {
+    if (slashResult.agentId !== defaultAgentId) {
+      setActiveAgent(userId, slashResult.agentId);
+    } else {
+      clearActiveAgent(userId);
+    }
+    return slashResult;
+  }
+
+  // 1b. Explicit agent prefix (escape hatch — still works if needed)
   const commandResult = tryParseAgentPrefix(trimmed, registryRoot);
   if (commandResult) {
+    if (commandResult.agentId !== defaultAgentId) {
+      setActiveAgent(userId, commandResult.agentId);
+    } else {
+      clearActiveAgent(userId);
+    }
     return commandResult;
   }
 
@@ -139,7 +156,18 @@ export function resolveAgentFromMessage(
     };
   }
 
-  // 3. Default agent
+  // 3. Sticky agent — follow-up messages stay with the last explicitly-targeted agent
+  const stickyAgent = getActiveAgent(userId);
+  if (stickyAgent) {
+    return {
+      agentId: stickyAgent,
+      matchedBy: "command",
+      strippedBody: trimmed,
+      isSwitchCommand: false,
+    };
+  }
+
+  // 4. Default agent
   if (defaultAgentId) {
     return {
       agentId: defaultAgentId,
@@ -150,6 +178,33 @@ export function resolveAgentFromMessage(
   }
 
   return null;
+}
+
+/**
+ * Check if the message is a slash command like /scheduler find a time.
+ * This is the Teams-friendly command dispatch pattern.
+ */
+function tryParseSlashCommand(text: string, registryRoot: string): AgentRouteResult | null {
+  const match = SLASH_COMMAND_RE.exec(text);
+  if (!match) {
+    return null;
+  }
+
+  const commandName = match[1].toLowerCase();
+  const body = match[2].trim();
+
+  const registry = loadAgentRegistry(registryRoot);
+  const agent = findAgent(registry, commandName);
+  if (!agent) {
+    return null;
+  }
+
+  return {
+    agentId: agent.definition.metadata.name,
+    matchedBy: "command",
+    strippedBody: body || `(routed to ${agent.definition.metadata.displayName})`,
+    isSwitchCommand: false,
+  };
 }
 
 /**
@@ -180,19 +235,30 @@ function tryParseAgentPrefix(text: string, registryRoot: string): AgentRouteResu
   };
 }
 
-/**
- * Get the user's currently active agent session, if any.
- * (Kept for backward compat but no longer primary routing mechanism.)
- */
-export function getActiveAgent(_userId: string): string | undefined {
-  return undefined;
+// Sticky agent sessions: when a user explicitly targets a non-default agent
+// via command/slash (e.g. /scheduler), follow-up messages stay with that agent
+// until the user sends /newchat, targets a different agent, or the entry expires.
+const STICKY_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const stickyAgents = new Map<string, { agentId: string; ts: number }>();
+
+export function getActiveAgent(userId: string): string | undefined {
+  const entry = stickyAgents.get(userId);
+  if (!entry) {
+    return undefined;
+  }
+  if (Date.now() - entry.ts > STICKY_TTL_MS) {
+    stickyAgents.delete(userId);
+    return undefined;
+  }
+  return entry.agentId;
 }
 
-/**
- * Clear the user's active agent session (no-op now, kept for compat).
- */
-export function clearActiveAgent(_userId: string): void {
-  // Intent-based routing doesn't use sticky sessions
+export function setActiveAgent(userId: string, agentId: string): void {
+  stickyAgents.set(userId, { agentId, ts: Date.now() });
+}
+
+export function clearActiveAgent(userId: string): void {
+  stickyAgents.delete(userId);
 }
 
 /**
@@ -218,5 +284,5 @@ export function handleAgentsListCommand(registryRoot: string): string {
     return `- **${def.metadata.displayName}**${isDefault} — ${def.metadata.description}${keywordPreview}`;
   });
 
-  return `**Available Agents** (${registry.agents.length})\n\n${lines.join("\n\n")}\n\nMessages are automatically routed to the right agent based on what you ask. You can also use \`!<agent> <message>\` to target one directly.`;
+  return `**Available Agents** (${registry.agents.length})\n\n${lines.join("\n\n")}\n\nMessages are automatically routed to the right agent based on what you ask. You can also use \`/<agent> <message>\` to target one directly (e.g. \`/scheduler find a time with Derick\`).`;
 }

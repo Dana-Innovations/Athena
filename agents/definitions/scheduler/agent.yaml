@@ -1,31 +1,38 @@
+# Scheduler Agent — Annotated Example
+# See docs/sonance/agent-yaml-reference.md for the full field reference.
+# See docs/sonance/agent-creator-guide.md to learn how to create a new agent.
+
 apiVersion: athena/v1
 kind: Agent
+
 metadata:
-  name: scheduler
-  displayName: "Scheduler"
+  name: scheduler                  # Unique agent ID — used as the session key prefix
+  displayName: "Scheduler"         # Shown in Teams and the Admin Portal
   description: "Automated scheduling, daily briefings, and calendar coordination for Sonance"
   avatar: "scheduler.png"
-  aliases: ["@scheduler"]
+  aliases: ["@scheduler"]          # Users can address this agent with @scheduler in Teams
   team: company-wide
   owner: josh@sonance.com
 
 spec:
+  # "specialist" = internal helper, receives tasks from orchestrators (e.g. Athena)
+  # "orchestrator" = primary user-facing agent (gets default: true in OpenClaw config)
   role: specialist
 
   runtime:
     framework: openclaw
     model:
-      primary: anthropic/claude-haiku-4-5-20251001
+      primary: anthropic/claude-sonnet-4-5-20250929
       fallback: anthropic/claude-sonnet-4-5-20250929
     compaction:
-      mode: safeguard
+      mode: safeguard   # Compact context near token limit to prevent truncation
 
   identity:
-    soulPath: ./SOUL.md
+    soulPath: ./SOUL.md   # Personality + instructions — edit this to change behavior
     onboarding: false
 
   persistence:
-    provider: azure-blob
+    provider: azure-blob   # Production: Azure Blob. Use "local" for dev without Azure.
     quota: 512MB
     layout:
       workspace: /workspace
@@ -34,36 +41,78 @@ spec:
 
   skills:
     cortex:
+      # Which MCP integrations to activate for this agent
       mcps: ["m365"]
       tools:
+        # Explicit allowlist — only these tools are visible to the Scheduler's LLM.
+        # Limiting the list keeps responses focused and avoids confusion.
+        # Find tool names on the Cortex Connections page in the Admin Portal.
         allow:
+          # Calendar & scheduling
           - "cortex_m365__list_events"
           - "cortex_m365__create_event"
           - "cortex_m365__get_schedule"
+          - "cortex_m365__list_meetings"
+          - "cortex_m365__create_meeting"
+          # People & presence
           - "cortex_m365__search_people"
           - "cortex_m365__get_presence"
           - "cortex_m365__get_profile"
+          - "cortex_m365__list_contacts"
+          # Email (for scheduling coordination)
+          - "cortex_m365__send_email"
+          - "cortex_m365__list_emails"
+          - "cortex_m365__get_email"
+          - "cortex_m365__save_draft_email"
+          # Tasks
+          - "cortex_m365__list_tasks"
+          - "cortex_m365__create_task"
+          - "cortex_m365__list_todo_lists"
+          # Auth check
+          - "cortex_m365__check_auth_status"
+          # Inter-agent communication
+          - "ask_agent"
+          - "delegate_to_agent"
+          - "notify_agent"
 
+  # When a Teams message matches these keywords, it gets routed to this agent.
+  # Athena checks all agents; the one with highest priority + matching keywords wins.
+  routing:
+    intentKeywords:
+      - "schedule a meeting"
+      - "find a time"
+      - "book a meeting"
+      - "calendar conflict"
+      - "free/busy"
+      - "daily briefing"
+      - "weekly summary"
+    priority: 10   # Higher = checked first. Default 0.
+
+  # Cron jobs run automatically on a schedule.
+  # The "action" string is passed to the agent as its trigger prompt.
   cron:
     - name: daily-briefing
-      schedule: "0 7 * * 1-5"
+      schedule: "0 7 * * 1-5"   # Weekdays at 7am UTC
       action: compile-daily-briefing
       targets: subscribed-users
     - name: weekly-summary
-      schedule: "0 17 * * 5"
+      schedule: "0 17 * * 5"    # Fridays at 5pm UTC
       action: compile-weekly-summary
       targets: all-managers
     - name: conflict-scan
-      schedule: "*/30 * * * 1-5"
+      schedule: "*/30 * * * 1-5" # Every 30 min on weekdays
       action: scan-calendar-conflicts
       targets: affected-users
 
+  # Inter-agent communication ACLs.
+  # canContact: which agents this one can query/delegate to/notify
+  # acceptFrom: which agents can send messages to this one
   collaboration:
     canContact: ["athena"]
     acceptFrom: ["athena"]
-    maxDelegationDepth: 1
+    maxDelegationDepth: 1   # Prevents deep delegation chains
 
   access:
     owners: ["joshual@sonance.com"]
     admins: ["elliott.amador@sonance.com"]
-    users: ["*@sonance.com"]
+    users: ["*@sonance.com"]   # All Sonance employees can use this agent

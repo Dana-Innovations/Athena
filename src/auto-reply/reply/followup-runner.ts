@@ -8,6 +8,11 @@ import { resolveAgentIdFromSessionKey, type SessionEntry } from "../../config/se
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
+import {
+  getCachedConversationId,
+  persistAssistantMessage,
+  persistUsage,
+} from "../../platform/persistence.js";
 import { defaultRuntime } from "../../runtime.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
 import type { OriginatingChannelType } from "../templating.js";
@@ -281,6 +286,35 @@ export function createFollowupRunner(params: {
           const suffix = typeof count === "number" ? ` (count ${count})` : "";
           finalPayloads.unshift({
             text: `🧹 Auto-compaction complete${suffix}.`,
+          });
+        }
+      }
+
+      // -- Platform DB: persist assistant reply + usage (fire-and-forget) ---
+      const followupSessionKey = queued.run.sessionKey;
+      if (followupSessionKey) {
+        const replyText = finalPayloads
+          .map((p) => p.text)
+          .filter(Boolean)
+          .join("\n");
+        const convId = getCachedConversationId(followupSessionKey);
+        if (convId && replyText) {
+          const followupAgentId = resolveAgentIdFromSessionKey(followupSessionKey);
+          const followupUserId = queued.run.senderId ?? "unknown";
+          persistAssistantMessage({
+            conversationId: convId,
+            agentId: followupAgentId,
+            userId: followupUserId,
+            content: replyText,
+            tokenCount: usage?.output ?? usage?.total,
+            tokensInput: usage?.input,
+            tokensOutput: usage?.output,
+          });
+          persistUsage({
+            agentId: followupAgentId,
+            messages: 1,
+            tokensInput: usage?.input ?? 0,
+            tokensOutput: usage?.output ?? 0,
           });
         }
       }

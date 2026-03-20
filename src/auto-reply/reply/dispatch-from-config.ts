@@ -9,6 +9,11 @@ import {
   logMessageQueued,
   logSessionStateChange,
 } from "../../logging/diagnostic.js";
+import {
+  getOrCreateConversation,
+  persistAudit,
+  persistUserMessage,
+} from "../../platform/persistence.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { maybeApplyTtsToPayload, normalizeTtsAutoMode, resolveTtsConfig } from "../../tts/tts.js";
 import { getReplyFromConfig } from "../reply.js";
@@ -224,6 +229,29 @@ export async function dispatchReplyFromConfig(params: {
     ).catch((err) => {
       logVerbose(`dispatch-from-config: message_received internal hook failed: ${String(err)}`);
     });
+  }
+
+  // -- Platform DB: persist inbound user message (fire-and-forget) -----------
+  if (sessionKey && content) {
+    const agentId = resolveSessionAgentId({ sessionKey, config: cfg });
+    const userId = ctx.SenderId ?? ctx.From ?? "unknown";
+    const userEmail = typeof ctx.SenderEmail === "string" ? ctx.SenderEmail : undefined;
+    const gateway = channelId || "unknown";
+
+    void getOrCreateConversation({ sessionKey, agentId, userId, userEmail, gateway })
+      .then((convId) => {
+        persistUserMessage({ conversationId: convId, agentId, userId, content });
+        persistAudit({
+          eventType: "agent_message",
+          agentId,
+          userId,
+          action: "user_message",
+          details: { gateway, contentLength: content.length },
+        });
+      })
+      .catch((err) => {
+        logVerbose(`dispatch-from-config: platform persist failed: ${String(err)}`);
+      });
   }
 
   // Check if we should route replies to originating channel instead of dispatcher.

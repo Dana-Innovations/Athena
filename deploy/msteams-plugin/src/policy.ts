@@ -221,7 +221,10 @@ export function resolveMSTeamsReplyPolicy(params: {
   channelConfig?: MSTeamsChannelConfig;
 }): MSTeamsReplyPolicy {
   if (params.isDirectMessage) {
-    const replyStyle = params.globalConfig?.replyStyle ?? "thread";
+    // Default to proactive messaging for DMs to avoid Bot Framework
+    // inline-reply duplication where ctx.sendActivity() sends the first
+    // reply both as the HTTP response body AND as a separate REST POST.
+    const replyStyle = params.globalConfig?.replyStyle ?? "proactive";
     return { requireMention: false, replyStyle };
   }
 

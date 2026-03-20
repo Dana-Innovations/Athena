@@ -88,6 +88,7 @@ export function renderDashboard(props: DashboardViewProps) {
           </div>`
           : nothing
       }
+
       ${
         !props.connectionsLoaded
           ? html`

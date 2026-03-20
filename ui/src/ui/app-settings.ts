@@ -191,7 +191,10 @@ export function setTheme(host: SettingsHost, next: ThemeMode, context?: ThemeTra
 export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "dashboard") {
     const { loadCortexConnections } = await import("./controllers/agents.ts");
+    const { loadPlatformStats, loadPlatformAgents } = await import("./controllers/platform.ts");
     void loadCortexConnections(host as unknown as OpenClawApp);
+    void loadPlatformStats(host as unknown as Parameters<typeof loadPlatformStats>[0]);
+    void loadPlatformAgents(host as unknown as Parameters<typeof loadPlatformAgents>[0]);
     if (host.settings.dashboardView === "legacy") {
       const { loadDashboardData } = await import("./controllers/dashboard.ts");
       void loadDashboardData(host as unknown as OpenClawApp);
@@ -261,8 +264,16 @@ export async function refreshActiveTab(host: SettingsHost) {
     await loadPlatformMetrics(host as unknown as Parameters<typeof loadPlatformMetrics>[0]);
   }
   if (host.tab === "platform-agents") {
-    const { loadPlatformAgents } = await import("./controllers/platform.ts");
-    await loadPlatformAgents(host as unknown as Parameters<typeof loadPlatformAgents>[0]);
+    const { loadPlatformAgents, loadPlatformStats, loadPlatformMetrics } =
+      await import("./controllers/platform.ts");
+    const { loadCortexTools, loadCortexConnections } = await import("./controllers/agents.ts");
+    await Promise.all([
+      loadPlatformAgents(host as unknown as Parameters<typeof loadPlatformAgents>[0]),
+      loadPlatformStats(host as unknown as Parameters<typeof loadPlatformStats>[0]),
+      loadPlatformMetrics(host as unknown as Parameters<typeof loadPlatformMetrics>[0]),
+      loadCortexTools(host as unknown as Parameters<typeof loadCortexTools>[0]),
+      loadCortexConnections(host as unknown as Parameters<typeof loadCortexConnections>[0]),
+    ]);
   }
   if (host.tab === "platform-conversations") {
     const { loadPlatformConversations } = await import("./controllers/platform.ts");
@@ -277,6 +288,33 @@ export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "platform-audit") {
     const { loadPlatformAudit } = await import("./controllers/platform.ts");
     await loadPlatformAudit(host as unknown as Parameters<typeof loadPlatformAudit>[0]);
+  }
+  if (host.tab === "platform-cron") {
+    const { loadPlatformCron } = await import("./controllers/platform.ts");
+    await loadPlatformCron(host as unknown as Parameters<typeof loadPlatformCron>[0]);
+  }
+  if (host.tab === "platform-deployment") {
+    const { loadPlatformAgents, loadPlatformStats } = await import("./controllers/platform.ts");
+    const { loadCortexConnections } = await import("./controllers/agents.ts");
+    await Promise.all([
+      loadPlatformAgents(host as unknown as Parameters<typeof loadPlatformAgents>[0]),
+      loadPlatformStats(host as unknown as Parameters<typeof loadPlatformStats>[0]),
+      loadCortexConnections(host),
+    ]);
+  }
+  if (host.tab === "command-center") {
+    const { loadPlatformAgents, loadPlatformStats } = await import("./controllers/platform.ts");
+    await Promise.all([
+      loadPlatformAgents(host as unknown as Parameters<typeof loadPlatformAgents>[0]),
+      loadPlatformStats(host as unknown as Parameters<typeof loadPlatformStats>[0]),
+    ]);
+  }
+  if (host.tab === "platform-connections") {
+    const { loadCortexTools, loadCortexConnections } = await import("./controllers/agents.ts");
+    await Promise.all([
+      loadCortexTools(host as unknown as Parameters<typeof loadCortexTools>[0]),
+      loadCortexConnections(host as unknown as Parameters<typeof loadCortexConnections>[0]),
+    ]);
   }
   if (host.tab === "admin") {
     const { loadAdminData } = await import("./controllers/admin.ts");

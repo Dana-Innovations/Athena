@@ -43,6 +43,14 @@ export type SonanceCortexConfig = {
    */
   mcpBridgeUrl: string;
   /**
+   * Optional user email for supplementary per-user tool discovery.
+   * The bridge returns different tool sets per user (e.g. m365 tools require
+   * a user-scoped OAuth token). When set, the plugin exchanges the service
+   * key for a user-scoped key and registers any additional tools the user has
+   * access to (e.g. cortex_m365__*) that the service key does not expose.
+   */
+  bridgeUserEmail?: string;
+  /**
    * Supabase project URL for direct database access (org-wide usage queries).
    * Example: "https://xxxx.supabase.co"
    */
@@ -130,6 +138,10 @@ export function parseCortexConfig(raw: unknown): SonanceCortexConfig {
       typeof obj.mcpBridgeUrl === "string" && obj.mcpBridgeUrl.trim()
         ? obj.mcpBridgeUrl.trim()
         : (process.env.SONANCE_MCP_BRIDGE_URL ?? ""),
+    bridgeUserEmail:
+      typeof obj.bridgeUserEmail === "string" && obj.bridgeUserEmail.trim()
+        ? obj.bridgeUserEmail.trim()
+        : process.env.SONANCE_BRIDGE_USER_EMAIL?.trim() || undefined,
     supabaseUrl:
       typeof obj.supabaseUrl === "string" && obj.supabaseUrl.trim()
         ? obj.supabaseUrl.trim()

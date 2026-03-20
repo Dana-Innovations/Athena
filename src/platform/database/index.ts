@@ -26,6 +26,7 @@ export type {
   MessageFilter,
   MetricsFilter,
   PlatformStats,
+  SoulVersion,
   UsageMetric,
 } from "./types.js";
 export { AthenaSqliteProvider } from "./sqlite-provider.js";

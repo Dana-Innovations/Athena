@@ -5,7 +5,7 @@ metadata:
   displayName: "Athena"
   description: "Personal AI assistant for Sonance employees"
   avatar: "athena.png"
-  aliases: ["@athena"]
+  aliases: [ "@athena" ]
   team: company-wide
   owner: josh@sonance.com
 
@@ -34,13 +34,14 @@ spec:
 
   skills:
     cortex:
-      mcps: ["m365"]
+      mcps: [ "m365" ]
       tools:
-        allow: ["cortex_m365__*"]
-        deny: ["cortex_m365__delete_*"]
+        allow: [ "cortex_m365__*", "ask_agent", "delegate_to_agent", "notify_agent" ]
+        deny: [ "cortex_m365__delete_*" ]
 
   subagents:
-    allowAgents: ["scheduler"]
+    allowAgents:
+      - scheduler
     maxSpawnDepth: 2
     maxConcurrent: 5
 
@@ -66,11 +67,11 @@ spec:
       targets: subscribed-users
 
   collaboration:
-    canContact: ["scheduler"]
-    acceptFrom: ["*"]
+    canContact: [ "scheduler" ]
+    acceptFrom: [ "*" ]
     maxDelegationDepth: 2
 
   access:
-    owners: ["joshual@sonance.com"]
-    admins: ["elliott.amador@sonance.com"]
-    users: ["*@sonance.com"]
+    owners: [ "joshual@sonance.com" ]
+    admins: [ "elliott.amador@sonance.com" ]
+    users: [ "*@sonance.com" ]

@@ -1,7 +1,16 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
-export const PROFILE_BASE_DIR = process.env.ATHENA_PROFILE_DIR ?? "/data/profiles";
+function resolveProfileBaseDir(): string {
+  if (process.env.ATHENA_PROFILE_DIR) return process.env.ATHENA_PROFILE_DIR;
+  if (process.env.ATHENA_STATE_DIR) return path.join(process.env.ATHENA_STATE_DIR, "profiles");
+  if (process.env.OPENCLAW_STATE_DIR) return path.join(process.env.OPENCLAW_STATE_DIR, "profiles");
+  const home = os.homedir();
+  return home ? path.join(home, ".openclaw", "profiles") : "/data/profiles";
+}
+
+export const PROFILE_BASE_DIR = resolveProfileBaseDir();
 const DEFAULT_PROFILE_SUBDIR = "_default";
 const DIRECTORY_FILE = "_directory.json";
 

@@ -3,19 +3,16 @@ import type { IconName } from "./icons.js";
 
 export const TAB_GROUPS = [
   { label: "home", tabs: ["dashboard"] },
-  { label: "chat", tabs: ["chat"] },
+  { label: "command", tabs: ["command-center"] },
+  { label: "agents", tabs: ["platform-agents"] },
+  { label: "connections", tabs: ["platform-connections"] },
   { label: "cortex", tabs: ["usage"] },
-  {
-    label: "platform",
-    tabs: [
-      "platform-overview",
-      "platform-agents",
-      "platform-conversations",
-      "platform-memory",
-      "platform-audit",
-    ],
-  },
-  { label: "settings", tabs: ["config"] },
+  { label: "conversations", tabs: ["platform-conversations"] },
+  { label: "memory", tabs: ["platform-memory"] },
+  { label: "audit", tabs: ["platform-audit"] },
+  { label: "cron", tabs: ["platform-cron"] },
+  { label: "deployment", tabs: ["platform-deployment"] },
+  { label: "chat", tabs: ["chat"] },
   { label: "admin", tabs: ["admin"] },
 ] as const;
 
@@ -59,7 +56,11 @@ export type Tab =
   | "config"
   | "debug"
   | "logs"
-  | "admin";
+  | "admin"
+  | "command-center"
+  | "platform-connections"
+  | "platform-cron"
+  | "platform-deployment";
 
 const TAB_PATHS: Record<Tab, string> = {
   dashboard: "/dashboard",
@@ -85,6 +86,10 @@ const TAB_PATHS: Record<Tab, string> = {
   debug: "/debug",
   logs: "/logs",
   admin: "/admin",
+  "command-center": "/command-center",
+  "platform-connections": "/cortex",
+  "platform-cron": "/platform/cron",
+  "platform-deployment": "/platform/deployment",
 };
 
 const PATH_TO_TAB = new Map(Object.entries(TAB_PATHS).map(([tab, path]) => [path, tab as Tab]));
@@ -202,6 +207,14 @@ export function iconForTab(tab: Tab): IconName {
       return "fileText";
     case "platform-audit":
       return "shield";
+    case "command-center":
+      return "monitor";
+    case "platform-connections":
+      return "puzzle";
+    case "platform-cron":
+      return "loader";
+    case "platform-deployment":
+      return "radio";
     case "apollo":
       return "barChart";
     case "whitelist":

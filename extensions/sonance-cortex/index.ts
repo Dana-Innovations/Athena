@@ -10,8 +10,17 @@
  * openclaw.json (or via SONANCE_CORTEX_* env vars).
  */
 
+import { homedir } from "node:os";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { loadPlatformAgentOverlay } from "../../src/platform/adapter.js";
+import {
+  createAskAgentToolDef,
+  createDelegateAgentToolDef,
+  createNotifyAgentToolDef,
+} from "../../src/platform/agent-bus-tool.js";
+import { registerPlatformMethods } from "../../src/platform/gateway-methods.js";
+import { OpenClawRuntime, setAgentRuntime } from "../../src/platform/runtime.js";
 import { pluginUserStore } from "../../src/plugins/user-context.js";
 import { installApolloFetchCompat } from "./src/apollo-compat.js";
 import { AuditSink } from "./src/audit-sink.js";
@@ -34,8 +43,35 @@ const cortexPlugin = {
   register(api: OpenClawPluginApi) {
     const config = parseCortexConfig(api.pluginConfig);
 
+    // Set the global AgentRuntime to the OpenClaw adapter (production default).
+    setAgentRuntime(
+      new OpenClawRuntime({ apolloBaseUrl: config.apolloBaseUrl, apiKey: config.apiKey }),
+    );
+
     // Local-only Sonance gateway methods — no Cortex connectivity required.
     registerLocalSonanceMethods(api);
+
+    // Ensure platform agents are subscribed to the message bus before any
+    // inter-agent tool calls arrive. Config resolution may not have run yet
+    // depending on startup order, so we trigger it explicitly here.
+    {
+      const stateDir =
+        process.env.OPENCLAW_STATE_DIR?.trim() ||
+        process.env.ATHENA_STATE_DIR?.trim() ||
+        `${homedir()}/.openclaw`;
+      try {
+        loadPlatformAgentOverlay(stateDir);
+        api.logger.info("[sonance-cortex] platform agent bus ready");
+      } catch (err) {
+        api.logger.warn(`[sonance-cortex] platform agent overlay failed: ${err}`);
+      }
+    }
+
+    // Inter-agent communication tools — query/delegate/notify patterns.
+    // Registered unconditionally (no Cortex needed).
+    registerAskAgentTool(api);
+    registerDelegateAgentTool(api);
+    registerNotifyAgentTool(api);
 
     if (!config.enabled) {
       api.logger.info("[sonance-cortex] plugin disabled");
@@ -113,46 +149,49 @@ const cortexPlugin = {
     let keyResolverTeardown: (() => void) | undefined;
 
     if (config.centralKeys.enabled) {
-      import("../../src/agents/model-auth.js")
-        .then(({ setSonanceCentralKeyResolver }) => {
-          keyResolverTeardown = setSonanceCentralKeyResolver(async (provider) => {
-            // 1. Apollo proxy mode: return the Cortex API key as the auth
-            //    credential. Apollo receives this as x-api-key, validates it
-            //    via Aegis, then proxies to Anthropic with the server-side key.
-            //    The Anthropic provider baseUrl is already pointed at Apollo
-            //    by sonance-defaults.ts when apolloBaseUrl is configured.
-            if (config.apolloBaseUrl && config.apiKey) {
-              api.logger.info(
-                "[sonance-cortex] Apollo proxy — authenticating to Apollo for " + provider,
-              );
-              return {
-                apiKey: config.apiKey,
-                source: "cortex:apollo-proxy",
-                mode: "api-key" as const,
-              };
-            }
+      // Register synchronously via require() so the resolver is available immediately
+      // on startup — before any queued followup runs (e.g. Scheduler) fire.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { setSonanceCentralKeyResolver } =
+          require("../../src/agents/model-auth.js") as typeof import("../../src/agents/model-auth.js");
+        keyResolverTeardown = setSonanceCentralKeyResolver(async (provider) => {
+          // 1. Apollo proxy mode: return the Cortex API key as the auth
+          //    credential. Apollo receives this as x-api-key, validates it
+          //    via Aegis, then proxies to Anthropic with the server-side key.
+          //    The Anthropic provider baseUrl is already pointed at Apollo
+          //    by sonance-defaults.ts when apolloBaseUrl is configured.
+          if (config.apolloBaseUrl && config.apiKey) {
+            api.logger.info(
+              "[sonance-cortex] Apollo proxy — authenticating to Apollo for " + provider,
+            );
+            return {
+              apiKey: config.apiKey,
+              source: "cortex:apollo-proxy",
+              mode: "api-key" as const,
+            };
+          }
 
-            // 2. Direct fallback: env vars provide a raw provider key for PoC
-            //    use without a running Cortex/Apollo server.
-            const envKey = resolveProviderEnvKey(provider);
-            if (envKey) {
-              api.logger.info(
-                "[sonance-cortex] direct mode — " + provider + " key from env: " + envKey.source,
-              );
-              return {
-                apiKey: envKey.apiKey,
-                source: "cortex:env:" + envKey.source,
-                mode: "api-key" as const,
-              };
-            }
+          // 2. Direct fallback: env vars provide a raw provider key for PoC
+          //    use without a running Cortex/Apollo server.
+          const envKey = resolveProviderEnvKey(provider);
+          if (envKey) {
+            api.logger.info(
+              "[sonance-cortex] direct mode — " + provider + " key from env: " + envKey.source,
+            );
+            return {
+              apiKey: envKey.apiKey,
+              source: "cortex:env:" + envKey.source,
+              mode: "api-key" as const,
+            };
+          }
 
-            return null;
-          });
-          api.logger.info("[sonance-cortex] central key resolver registered");
-        })
-        .catch((err) => {
-          api.logger.warn(`[sonance-cortex] failed to register key resolver: ${String(err)}`);
+          return null;
         });
+        api.logger.info("[sonance-cortex] central key resolver registered");
+      } catch (err) {
+        api.logger.warn(`[sonance-cortex] failed to register key resolver: ${String(err)}`);
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -231,8 +270,9 @@ const cortexPlugin = {
         .listTools()
         .then((tools) => {
           let registered = 0;
+          const registeredNames = getRegisteredBridgeToolNames(api);
           for (const tool of tools) {
-            if (_registeredBridgeToolNames.has(tool.name)) continue;
+            if (registeredNames.has(tool.name)) continue;
 
             api.registerTool({
               name: tool.name,
@@ -266,7 +306,7 @@ const cortexPlugin = {
                 return wrapTextResult(text);
               },
             });
-            _registeredBridgeToolNames.add(tool.name);
+            registeredNames.add(tool.name);
             registered++;
             api.logger.info(`[sonance-cortex] registered tool: ${tool.name}`);
           }
@@ -285,7 +325,7 @@ const cortexPlugin = {
     // -----------------------------------------------------------------------
 
     if (config.mcpBridgeUrl) {
-      bridgeCortexMcp(api, config.mcpBridgeUrl, config.apiKey);
+      bridgeCortexMcp(api, config.mcpBridgeUrl, config.apiKey, config.bridgeUserEmail);
     }
 
     // -----------------------------------------------------------------------
@@ -613,18 +653,136 @@ function resolveProviderEnvKey(provider: string): { apiKey: string; source: stri
 // MCP bridge helpers
 // ---------------------------------------------------------------------------
 
-// Process-level guards: survive plugin re-loads triggered by the config watcher.
-// The plugin module is re-evaluated on each reload (via jiti), so module-level
-// state is lost. globalThis state persists across re-imports within the same process.
-const _G = globalThis as unknown as {
-  __sonanceCortexRegisteredTools?: Set<string>;
-  __sonanceCortexSyncedAgents?: Set<string>;
-};
-const _registeredBridgeToolNames = (_G.__sonanceCortexRegisteredTools ??= new Set<string>());
-const _syncedMcpAgents = (_G.__sonanceCortexSyncedAgents ??= new Set<string>());
+// Per-registry guards: each plugin registry instance gets its own Set so tools
+// are correctly registered into every registry (agents with different workspaceDirs
+// trigger separate registry loads). A WeakMap keyed on the api object ensures
+// guards are scoped to the api/registry lifetime and GC'd together.
+const _apiToolGuards = new WeakMap<object, Set<string>>();
+const _apiAgentGuards = new WeakMap<object, Set<string>>();
+
+function getRegisteredBridgeToolNames(api: OpenClawPluginApi): Set<string> {
+  let s = _apiToolGuards.get(api);
+  if (!s) {
+    s = new Set<string>();
+    _apiToolGuards.set(api, s);
+  }
+  return s;
+}
+function getSyncedMcpAgents(api: OpenClawPluginApi): Set<string> {
+  let s = _apiAgentGuards.get(api);
+  if (!s) {
+    s = new Set<string>();
+    _apiAgentGuards.set(api, s);
+  }
+  return s;
+}
 
 function wrapTextResult(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
+}
+
+/**
+ * Post-processes the get_schedule response to convert the encoded
+ * availabilityView strings into clear human-readable text.
+ * This prevents LLMs from misinterpreting the 0/1/2/3/4 encoding.
+ */
+function humanizeScheduleResponse(rawText: string, params: Record<string, unknown>): string {
+  try {
+    const data = JSON.parse(rawText);
+    if (!data?.schedules || !Array.isArray(data.schedules)) return rawText;
+
+    const startStr = (params.start as string) ?? "";
+    const tz = (params.time_zone as string) ?? "UTC";
+    const intervalMin = (params.interval as number) ?? 30;
+
+    const startDate = new Date(startStr);
+    if (isNaN(startDate.getTime())) return rawText;
+
+    const STATUS_LABELS: Record<string, string> = {
+      "0": "free",
+      "1": "tentative",
+      "2": "busy",
+      "3": "out-of-office",
+      "4": "working-elsewhere",
+    };
+
+    const lines: string[] = [`SCHEDULE AVAILABILITY (timezone: ${tz})\n`];
+
+    const allViews: string[] = [];
+
+    for (const sched of data.schedules as Array<{
+      scheduleId?: string;
+      availabilityView?: string;
+    }>) {
+      const view = sched.availabilityView ?? "";
+      allViews.push(view);
+      lines.push(`--- ${sched.scheduleId ?? "unknown"} ---`);
+
+      if (!view || view === "0".repeat(view.length)) {
+        lines.push("  All slots: FREE\n");
+        continue;
+      }
+
+      let slotStart = new Date(startDate);
+      for (let i = 0; i < view.length; i++) {
+        const slotEnd = new Date(slotStart.getTime() + intervalMin * 60_000);
+        const code = view[i]!;
+        const label = STATUS_LABELS[code] ?? `unknown(${code})`;
+        const startTime = formatTimeInTz(slotStart, tz);
+        const endTime = formatTimeInTz(slotEnd, tz);
+        lines.push(`  ${startTime}-${endTime}: ${label.toUpperCase()}`);
+        slotStart = slotEnd;
+      }
+      lines.push("");
+    }
+
+    // Compute overlapping free slots
+    if (allViews.length > 0 && allViews[0]!.length > 0) {
+      lines.push("--- OVERLAPPING FREE SLOTS (all attendees free) ---");
+      const len = allViews[0]!.length;
+      let freeRangeStart: Date | null = null;
+      let slotTime = new Date(startDate);
+
+      for (let i = 0; i < len; i++) {
+        const allFree = allViews.every((v) => v[i] === "0");
+        if (allFree) {
+          if (!freeRangeStart) freeRangeStart = new Date(slotTime);
+        } else {
+          if (freeRangeStart) {
+            lines.push(
+              `  ✅ ${formatTimeInTz(freeRangeStart, tz)} - ${formatTimeInTz(slotTime, tz)}`,
+            );
+            freeRangeStart = null;
+          }
+        }
+        slotTime = new Date(slotTime.getTime() + intervalMin * 60_000);
+      }
+      if (freeRangeStart) {
+        lines.push(`  ✅ ${formatTimeInTz(freeRangeStart, tz)} - ${formatTimeInTz(slotTime, tz)}`);
+      }
+      if (!lines[lines.length - 1]?.includes("✅")) {
+        lines.push("  ❌ NO overlapping free slots found in this window.");
+      }
+      lines.push("");
+    }
+
+    return lines.join("\n");
+  } catch {
+    return rawText;
+  }
+}
+
+function formatTimeInTz(date: Date, tz: string): string {
+  try {
+    return date.toLocaleTimeString("en-US", {
+      timeZone: tz,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return date.toISOString().slice(11, 16) + " UTC";
+  }
 }
 
 function registerMcpTools(
@@ -633,11 +791,12 @@ function registerMcpTools(
   tools: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>,
   callFn: (toolName: string, params: Record<string, unknown>) => Promise<string>,
 ): void {
+  const registeredNames = getRegisteredBridgeToolNames(api);
   let registered = 0;
   for (const tool of tools) {
     const toolName = "cortex_" + mcpName + "__" + tool.name;
 
-    if (_registeredBridgeToolNames.has(toolName)) continue;
+    if (registeredNames.has(toolName)) continue;
 
     const inputProps = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
 
@@ -658,7 +817,7 @@ function registerMcpTools(
         return wrapTextResult(text);
       },
     });
-    _registeredBridgeToolNames.add(toolName);
+    registeredNames.add(toolName);
     registered++;
     api.logger.info("[sonance-cortex] registered MCP tool: " + toolName);
   }
@@ -672,7 +831,7 @@ function registerMcpTools(
       "'",
   );
 
-  syncMcpAgent(api.logger, mcpName, tools);
+  syncMcpAgent(api.logger, mcpName, tools, getSyncedMcpAgents(api));
 }
 
 /**
@@ -790,7 +949,12 @@ class BridgeTokenManager {
  * Unlike `bridgeHttpMcp` which uses separate URLs for tools/list and tools/call,
  * this sends all JSON-RPC calls to the same URL.
  */
-function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: string): void {
+function bridgeCortexMcp(
+  api: OpenClawPluginApi,
+  bridgeUrl: string,
+  apiKey: string,
+  userEmail?: string,
+): void {
   // Per-user token manager: exchanges service key + email for user-scoped API keys
   // so Cortex resolve_mcp_token() returns the correct user's OAuth tokens.
   const cortexBaseUrl = bridgeUrl.replace(/\/mcp\/cortex\/?$/, "");
@@ -823,21 +987,22 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
     return body.result;
   };
 
-  // Helper: register bridge tools from a tool list (used by both cache and live paths).
-  // Uses the module-level _registeredBridgeToolNames guard to survive plugin
-  // re-loads triggered by the config watcher without causing name conflicts.
   type BridgeTool = { name: string; description?: string; inputSchema?: Record<string, unknown> };
+  const registeredNames = getRegisteredBridgeToolNames(api);
   const registerBridgeTools = (tools: BridgeTool[]) => {
     let registered = 0;
     for (const tool of tools) {
       const prefixedName = "cortex_" + tool.name;
 
-      if (_registeredBridgeToolNames.has(prefixedName)) continue;
+      if (registeredNames.has(prefixedName)) continue;
 
       const schema = tool.inputSchema
         ? jsonSchemaToTypeBox(tool.inputSchema as Parameters<typeof jsonSchemaToTypeBox>[0])
         : Type.Object({});
 
+      if (prefixedName.includes("schedule")) {
+        console.error(`[HUMANIZE-REG] Registering tool ${prefixedName} with humanizer support`);
+      }
       api.registerTool({
         name: prefixedName,
         label: prefixedName,
@@ -873,20 +1038,34 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
           );
           const content = (callResult as { content?: Array<{ type: string; text?: string }> })
             ?.content;
-          const text = content
+          let text = content
             ?.filter((c) => c.type === "text")
             .map((c) => c.text ?? "")
             .join("\n");
+
+          if (prefixedName.endsWith("__get_schedule") && text) {
+            console.error(
+              `[HUMANIZE] Running humanizer for ${prefixedName}, text length=${text.length}`,
+            );
+            text = humanizeScheduleResponse(text, params as Record<string, unknown>);
+            console.error(
+              `[HUMANIZE] Result length=${text.length}, starts with: ${text.slice(0, 80)}`,
+            );
+          } else if (prefixedName.includes("schedule")) {
+            console.error(`[HUMANIZE] Tool ${prefixedName} did NOT match __get_schedule check`);
+          }
+
           return wrapTextResult(text || JSON.stringify(callResult ?? {}));
         },
       });
-      _registeredBridgeToolNames.add(prefixedName);
+      registeredNames.add(prefixedName);
       registered++;
       api.logger.info(`[sonance-cortex] registered bridge tool: ${prefixedName}`);
     }
     return registered;
   };
 
+  const syncedAgents = getSyncedMcpAgents(api);
   const syncBridgeAgents = (tools: BridgeTool[]) => {
     const mcpGroups = new Map<string, BridgeTool[]>();
     for (const tool of tools) {
@@ -902,7 +1081,7 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
       list.push({ ...tool, name: shortName });
     }
     for (const [mcpName, mcpTools] of mcpGroups) {
-      syncMcpAgent(api.logger, mcpName, mcpTools);
+      syncMcpAgent(api.logger, mcpName, mcpTools, syncedAgents);
     }
   };
 
@@ -933,7 +1112,7 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
 
   // ── Async discovery: fetch live tool list from Cortex and refresh the cache.
   rpc("tools/list")
-    .then((result) => {
+    .then(async (result) => {
       const tools = ((result as { tools?: unknown[] })?.tools ?? []) as BridgeTool[];
 
       // Write cache for next synchronous load
@@ -960,16 +1139,149 @@ function bridgeCortexMcp(api: OpenClawPluginApi, bridgeUrl: string, apiKey: stri
         api.logger.info(
           `[sonance-cortex] async refresh: ${tools.length} tool(s) from CompositeMCPBridge (already loaded from cache)`,
         );
-        return;
+      } else {
+        registerBridgeTools(tools);
+        api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from CompositeMCPBridge`);
+        syncBridgeAgents(tools);
       }
 
-      registerBridgeTools(tools);
-      api.logger.info(`[sonance-cortex] loaded ${tools.length} tool(s) from CompositeMCPBridge`);
-      syncBridgeAgents(tools);
+      // ── Supplementary per-user tool discovery ───────────────────────────────
+      // The bridge returns different tool sets per authenticated user. Personal
+      // integrations (e.g. m365) are only exposed when the user's OAuth token
+      // is active. Exchange the service key for the user's scoped key and
+      // register any additional tools not already in the service list.
+      if (userEmail) {
+        try {
+          const exchangeRes = await fetch(`${cortexBaseUrl}/api/v1/auth/token-exchange`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+            body: JSON.stringify({ email: userEmail }),
+          });
+          if (!exchangeRes.ok) throw new Error(`Token exchange failed (${exchangeRes.status})`);
+          const { api_key: userKey } = (await exchangeRes.json()) as { api_key: string };
+
+          const userResult = await rpc("tools/list", {}, userKey);
+          const userTools = ((userResult as { tools?: unknown[] })?.tools ?? []) as BridgeTool[];
+          const added = registerBridgeTools(userTools);
+
+          if (added > 0) {
+            api.logger.info(
+              `[sonance-cortex] registered ${added} user-specific tool(s) for ${userEmail} (total user tools: ${userTools.length})`,
+            );
+            syncBridgeAgents(userTools);
+
+            // Merge user tools into cache so they survive restart
+            try {
+              const fs = require("node:fs") as typeof import("node:fs");
+              const os = require("node:os") as typeof import("node:os");
+              const path = require("node:path") as typeof import("node:path");
+              const stateDir =
+                process.env.ATHENA_STATE_DIR?.trim() ||
+                process.env.OPENCLAW_STATE_DIR?.trim() ||
+                path.join(os.homedir(), ".openclaw");
+              const cacheFile = path.join(stateDir, "cache", "cortex-bridge-tools.json");
+              const existing = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as BridgeTool[];
+              const existingNames = new Set(existing.map((t) => t.name));
+              const merged = [...existing, ...userTools.filter((t) => !existingNames.has(t.name))];
+              fs.writeFileSync(cacheFile, JSON.stringify(merged), "utf-8");
+            } catch {
+              // Non-fatal: cache update failure doesn't affect current session
+            }
+          } else {
+            api.logger.info(
+              `[sonance-cortex] user tool discovery for ${userEmail}: ${userTools.length} tools (all already registered)`,
+            );
+          }
+        } catch (err) {
+          api.logger.warn(
+            `[sonance-cortex] user tool discovery failed for ${userEmail}: ${String(err)}`,
+          );
+        }
+      }
     })
     .catch((err) => {
       api.logger.warn(`[sonance-cortex] CompositeMCPBridge discovery failed: ${String(err)}`);
     });
+
+  // ── Gateway methods for the Athena Admin Portal UI ────────────────────────
+
+  // List registered Cortex tools grouped by MCP (reads from the local cache)
+  api.registerGatewayMethod("cortex.tools.list", (opts) => {
+    try {
+      const fs = require("node:fs") as typeof import("node:fs");
+      const os = require("node:os") as typeof import("node:os");
+      const path = require("node:path") as typeof import("node:path");
+      const stateDir =
+        process.env.ATHENA_STATE_DIR?.trim() ||
+        process.env.OPENCLAW_STATE_DIR?.trim() ||
+        path.join(os.homedir(), ".openclaw");
+      const cacheFile = path.join(stateDir, "cache", "cortex-bridge-tools.json");
+      const cached = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as BridgeTool[];
+
+      const map = new Map<string, { name: string; shortName: string; description: string }[]>();
+      for (const tool of cached) {
+        const sep = tool.name.indexOf("__");
+        if (sep === -1) continue;
+        const mcpName = tool.name.slice(0, sep);
+        const shortName = tool.name.slice(sep + 2);
+        let list = map.get(mcpName);
+        if (!list) {
+          list = [];
+          map.set(mcpName, list);
+        }
+        list.push({ name: "cortex_" + tool.name, shortName, description: tool.description ?? "" });
+      }
+
+      const groups = Array.from(map.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([mcpName, tools]) => ({
+          mcpName,
+          displayName: mcpName
+            .split(/[-_]/)
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" "),
+          tools,
+        }));
+      opts.respond(true, { groups });
+    } catch {
+      opts.respond(true, { groups: [] });
+    }
+  });
+
+  // List MCP OAuth connections from Cortex
+  const connectionsUrl = `${cortexBaseUrl}/api/v1/oauth/connections`;
+  api.registerGatewayMethod("cortex.connections.list", async (opts) => {
+    try {
+      let resolvedKey = apiKey;
+      try {
+        const { getSonanceSessionUser } = await import("../../src/gateway/sonance-context.js");
+        const client = (opts as Record<string, unknown>).client as
+          | Record<string, unknown>
+          | undefined;
+        const instanceId = (client?.connect as Record<string, unknown> | undefined)?.client as
+          | Record<string, unknown>
+          | undefined;
+        const sessionKey = instanceId?.instanceId as string | undefined;
+        if (sessionKey) {
+          const user = getSonanceSessionUser(sessionKey);
+          if (user?.email) {
+            resolvedKey = await tokenManager.getKeyForUser(user.email);
+          }
+        }
+      } catch {
+        // Fall back to service key
+      }
+      const res = await fetch(connectionsUrl, { headers: { "X-API-Key": resolvedKey } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as Record<string, unknown>;
+      opts.respond(true, data);
+    } catch (err) {
+      api.logger.warn(
+        `[sonance-cortex] connections list failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      opts.respond(true, { connections: [] });
+    }
+  });
 }
 
 /**
@@ -1054,9 +1366,10 @@ function syncMcpAgent(
   logger: { info(msg: string): void; warn(msg: string): void },
   mcpName: string,
   tools: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>,
+  syncedAgents: Set<string>,
 ): void {
-  if (_syncedMcpAgents.has(mcpName)) return;
-  _syncedMcpAgents.add(mcpName);
+  if (syncedAgents.has(mcpName)) return;
+  syncedAgents.add(mcpName);
 
   // Dynamic imports so this doesn't break if fs/os/path aren't bundled
   // in some future browser-only context.
@@ -1163,9 +1476,14 @@ function syncMcpAgent(
 
 function registerLocalSonanceMethods(api: OpenClawPluginApi): void {
   // -- Athena Platform Database Methods ------------------------------------
-  import("../../src/platform/gateway-methods.js")
-    .then(({ registerPlatformMethods }) => registerPlatformMethods(api))
-    .catch((err) => api.logger.warn(`[sonance-cortex] platform methods unavailable: ${err}`));
+  // NOTE: Must be called synchronously (not via dynamic import) because the
+  // gateway snapshots gatewayHandlers immediately after loadOpenClawPlugins()
+  // returns. Any async registration would miss the snapshot window.
+  try {
+    registerPlatformMethods(api);
+  } catch (err) {
+    api.logger.warn(`[sonance-cortex] platform methods unavailable: ${err}`);
+  }
 
   // -- Tool & Plugin Whitelist Audit (dynamic runtime discovery) -----------
   api.registerGatewayMethod("sonance.tools.audit", async ({ respond }) => {
@@ -2513,6 +2831,108 @@ function parseUnifiedDiff(raw: string): Array<{
   }
 
   return files;
+}
+
+/**
+ * Register the ask_agent inter-agent communication tool.
+ * This lets agents query each other via the platform message bus.
+ */
+const _askAgentRegistered = new WeakSet<object>();
+function registerAskAgentTool(api: OpenClawPluginApi): void {
+  if (_askAgentRegistered.has(api)) return;
+  _askAgentRegistered.add(api);
+  const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
+
+  api.registerTool((ctx) => {
+    const callerAgentId = ctx.agentId ?? "unknown";
+    const def = createAskAgentToolDef(registryRoot, callerAgentId);
+    return {
+      name: def.name,
+      label: "Ask Agent",
+      description: def.description,
+      parameters: Type.Object({
+        agent: Type.String({ description: "The agent ID to query (e.g. 'scheduler')" }),
+        question: Type.String({ description: "The question or task to send" }),
+      }),
+      async execute(_toolCallId: string, params: Record<string, unknown>) {
+        const text = await def.execute(_toolCallId, params);
+        return {
+          content: [{ type: "text" as const, text }],
+          details: {},
+        };
+      },
+    };
+  });
+
+  api.logger.info("[sonance-cortex] registered ask_agent inter-agent tool");
+}
+
+// ---------------------------------------------------------------------------
+// Inter-agent: delegate_to_agent
+// ---------------------------------------------------------------------------
+
+const _delegateAgentRegistered = new WeakSet<object>();
+function registerDelegateAgentTool(api: OpenClawPluginApi): void {
+  if (_delegateAgentRegistered.has(api)) return;
+  _delegateAgentRegistered.add(api);
+  const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
+
+  api.registerTool((ctx) => {
+    const callerAgentId = ctx.agentId ?? "unknown";
+    const def = createDelegateAgentToolDef(registryRoot, callerAgentId);
+    return {
+      name: def.name,
+      label: "Delegate to Agent",
+      description: def.description,
+      parameters: Type.Object({
+        agent: Type.String({ description: "The agent ID to delegate to (e.g. 'scheduler')" }),
+        task: Type.String({ description: "The task description to delegate" }),
+        context: Type.Optional(Type.String({ description: "Additional context for the agent" })),
+      }),
+      async execute(_toolCallId: string, params: Record<string, unknown>) {
+        const text = await def.execute(_toolCallId, params);
+        return { content: [{ type: "text" as const, text }], details: {} };
+      },
+    };
+  });
+
+  api.logger.info("[sonance-cortex] registered delegate_to_agent inter-agent tool");
+}
+
+// ---------------------------------------------------------------------------
+// Inter-agent: notify_agent
+// ---------------------------------------------------------------------------
+
+const _notifyAgentRegistered = new WeakSet<object>();
+function registerNotifyAgentTool(api: OpenClawPluginApi): void {
+  if (_notifyAgentRegistered.has(api)) return;
+  _notifyAgentRegistered.add(api);
+  const registryRoot = process.env.ATHENA_REPO_ROOT || process.cwd();
+
+  api.registerTool((ctx) => {
+    const callerAgentId = ctx.agentId ?? "unknown";
+    const def = createNotifyAgentToolDef(registryRoot, callerAgentId);
+    return {
+      name: def.name,
+      label: "Notify Agent",
+      description: def.description,
+      parameters: Type.Object({
+        agent: Type.String({ description: "The agent ID to notify (e.g. 'scheduler')" }),
+        event: Type.String({ description: "Event name or type" }),
+        payload: Type.Optional(
+          Type.Record(Type.String(), Type.Unknown(), {
+            description: "Key-value data to include with the event",
+          }),
+        ),
+      }),
+      async execute(_toolCallId: string, params: Record<string, unknown>) {
+        const text = await def.execute(_toolCallId, params);
+        return { content: [{ type: "text" as const, text }], details: {} };
+      },
+    };
+  });
+
+  api.logger.info("[sonance-cortex] registered notify_agent inter-agent tool");
 }
 
 export default cortexPlugin;
