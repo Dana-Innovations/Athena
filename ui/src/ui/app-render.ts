@@ -861,10 +861,27 @@ export function renderApp(state: AppViewState) {
                 return renderAdminMcps({
                   mcps: state.adminMcpUserAccess,
                   users: state.adminUsers,
+                  userConnections: state.adminMcpUserConnections,
                   expandedMcpName: state.adminMcpExpandedName,
                   onToggleMcp: (mcpName) => {
                     state.adminMcpExpandedName =
                       state.adminMcpExpandedName === mcpName ? null : mcpName;
+                  },
+                  expandedUserId: state.adminMcpExpandedUserId,
+                  onToggleUser: (userId) => {
+                    state.adminMcpExpandedUserId =
+                      state.adminMcpExpandedUserId === userId ? null : userId;
+                  },
+                  sortColumn: state.adminMcpSortColumn,
+                  sortDir: state.adminMcpSortDir,
+                  onSort: (column) => {
+                    if (state.adminMcpSortColumn === column) {
+                      state.adminMcpSortDir = state.adminMcpSortDir === "asc" ? "desc" : "asc";
+                    } else {
+                      state.adminMcpSortColumn = column;
+                      state.adminMcpSortDir =
+                        column === "email" || column === "name" ? "asc" : "desc";
+                    }
                   },
                   onGrant: (userId, mcpName) => {
                     void grantMcpUserAccess(adminState, userId, mcpName);

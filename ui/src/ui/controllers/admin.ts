@@ -41,6 +41,7 @@ export type AdminState = {
   adminVercelProjects: AdminVercelProjectSummary[] | null;
   adminDatabricksCatalogs: AdminDatabricksCatalogSummary[] | null;
   adminMcpUserAccess: AdminMcpUserAccessSummary[] | null;
+  adminMcpUserConnections: Record<string, string[]> | null;
   adminActivityLog: AdminActivityLogResponse | null;
   adminActivityLogLoading: boolean;
   adminActivityFilters: AdminActivityFilters;
@@ -504,8 +505,10 @@ export async function loadMcpUserAccess(state: AdminState): Promise<void> {
     const result = (await state.client.request("sonance.admin.mcp_user_access")) as {
       mcps: AdminMcpUserAccessSummary[];
       total_grants: number;
+      user_connections?: Record<string, string[]>;
     };
     state.adminMcpUserAccess = result.mcps;
+    state.adminMcpUserConnections = result.user_connections ?? null;
   } catch (err) {
     state.adminError = `Failed to load MCP user access: ${String(err)}`;
   }
