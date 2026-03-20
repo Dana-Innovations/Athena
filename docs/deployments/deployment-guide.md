@@ -4,11 +4,11 @@
 
 Athena supports three deployment targets:
 
-| Target                   | URL                          | Use Case                      |
-| ------------------------ | ---------------------------- | ----------------------------- |
-| **Fly.io** (primary)     | `https://cortex.sonance.com` | Production SaaS deployment    |
-| **Docker Compose**       | `https://athena.sonance.dev` | On-premise / self-hosted      |
-| **Azure Container Apps** | ACR FQDN                     | Enterprise Azure environments |
+| Target                   | URL                             | Use Case                      |
+| ------------------------ | ------------------------------- | ----------------------------- |
+| **Fly.io** (primary)     | `https://athena-cortex.fly.dev` | Production SaaS deployment    |
+| **Docker Compose**       | `https://athena.sonance.dev`    | On-premise / self-hosted      |
+| **Azure Container Apps** | ACR FQDN                        | Enterprise Azure environments |
 
 All targets run the same Docker image: a Node.js gateway serving both the backend API (WebSocket + REST) and the Vite-built UI.
 
@@ -20,7 +20,7 @@ All targets run the same Docker image: a Node.js gateway serving both the backen
                              |
               +--------------+--------------+
               |                             |
-     cortex.sonance.com          athena-cortex.fly.dev
+     athena-cortex.fly.dev          athena-cortex.fly.dev
               |                             |
               +-------------+---------------+
                             |
@@ -64,7 +64,7 @@ The TLS certificate is managed by Fly.io (Let's Encrypt, auto-renewed).
 
 ```bash
 # Check certificate status
-flyctl certs check cortex.sonance.com -a athena-cortex
+flyctl certs check athena-cortex.fly.dev -a athena-cortex
 
 # Add a new custom domain
 flyctl certs add <domain> -a athena-cortex
@@ -140,7 +140,7 @@ flyctl secrets set KEY1=val1 KEY2=val2 -a athena-cortex
 Current CORS config:
 
 ```
-OPENCLAW_ALLOWED_ORIGINS=https://cortex.sonance.com,https://athena-cortex.fly.dev
+OPENCLAW_ALLOWED_ORIGINS=https://athena-cortex.fly.dev,https://athena-cortex.fly.dev
 ```
 
 ### Deploy Commands
@@ -393,7 +393,7 @@ pnpm ui:dev      # Dev server on port 5173
   "supabaseAnonKey": "<jwt>",
   "aiIntranetUrl": "https://aiintranet.sonance.com",
   "appId": "1b9007a0-dfd2-473b-9e94-96b397d50b02",
-  "gatewayUrl": "wss://cortex.sonance.com"
+  "gatewayUrl": "wss://athena-cortex.fly.dev"
 }
 ```
 
@@ -416,7 +416,7 @@ flyctl deploy -a athena-cortex
 # 3. Verify
 flyctl status -a athena-cortex
 flyctl logs -a athena-cortex
-curl -I https://cortex.sonance.com
+curl -I https://athena-cortex.fly.dev
 ```
 
 ### Rolling Back

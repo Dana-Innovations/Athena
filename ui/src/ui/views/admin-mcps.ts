@@ -1,7 +1,7 @@
 /**
  * Admin MCP Access Page
  *
- * Displays MCP user access grouped by MCP with expandable rows.
+ * Displays MCP user access grouped by user with expandable rows.
  * Admins can grant or revoke user access to individual MCPs,
  * plus bulk grant-all / revoke-all per MCP.
  */
@@ -11,8 +11,12 @@ import type {
   AdminMcpUserAccessGrant,
   AdminMcpUserAccessSummary,
   AdminUser,
+  AdminUserMcpRow,
   McpGroup,
 } from "../types-admin.ts";
+
+export type McpSortColumn = "email" | "name" | "granted" | "connected";
+export type McpSortDir = "asc" | "desc";
 
 export type McpSetupConfigItem = {
   mcp_name: string;
@@ -23,8 +27,14 @@ export type McpSetupConfigItem = {
 export type AdminMcpsProps = {
   mcps: AdminMcpUserAccessSummary[] | null;
   users: AdminUser[] | null;
+  userConnections: Record<string, string[]> | null;
   expandedMcpName: string | null;
   onToggleMcp: (mcpName: string) => void;
+  expandedUserId: string | null;
+  onToggleUser: (userId: string) => void;
+  sortColumn: McpSortColumn;
+  sortDir: McpSortDir;
+  onSort: (column: McpSortColumn) => void;
   onGrant: (userId: string, mcpName: string) => void;
   onRevoke: (userId: string, mcpName: string) => void;
   onGrantAll: (mcpName: string) => void;
@@ -92,7 +102,7 @@ export function renderAdminMcps(props: AdminMcpsProps) {
   const allGrants = mcps.flatMap((m) => m.grants);
   const activeGrants = allGrants.filter((g) => g.is_active).length;
   const revokedGrants = allGrants.filter((g) => !g.is_active).length;
-  const uniqueUsers = new Set(allGrants.map((g) => g.user_id)).size;
+  const uniqueUsers = props.users?.filter((u) => u.status === "active").length ?? 0;
 
   return html`
     <div class="page-title">MCP Access</div>
@@ -129,23 +139,54 @@ export function renderAdminMcps(props: AdminMcpsProps) {
       </div>
     </div>
 
-    ${
-      allGrants.length === 0
-        ? html`
-        <div class="card" style="margin-bottom: 16px;">
-          <div class="card-body" style="text-align: center; padding: 24px;">
-            <p class="muted" style="margin: 0 0 12px 0;">No MCP access grants exist yet. Seed all users to get started.</p>
-            <button
-              class="btn btn--sm"
-              style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
-              ?disabled=${props.loading}
-              @click=${() => props.onSeed()}
-            >${props.loading ? "Seeding..." : "Seed All Users"}</button>
-          </div>
+    <div class="card" style="margin-bottom: 16px;">
+      <div class="card-body" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span class="muted" style="font-size: 0.82rem; font-weight: 600;">Bulk Actions</span>
+        <select
+          id="bulk-mcp-select"
+          style="padding: 5px 8px; border: 1px solid var(--border, rgba(255,255,255,0.12)); border-radius: 4px; background: var(--bg, #1a1e24); color: var(--fg, #e0e0e0); font-size: 0.82rem;"
+        >
+          <option value="">Select MCP...</option>
+          ${ALL_MCPS.filter((m) => !DEDICATED_ACCESS_MCPS.has(m.name)).map(
+            (m) => html`<option value=${m.name}>${m.label}</option>`,
+          )}
+        </select>
+        <button
+          class="btn btn--sm"
+          style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
+          ?disabled=${props.loading}
+          @click=${(e: Event) => {
+            const sel = (e.target as HTMLElement).parentElement!.querySelector<HTMLSelectElement>(
+              "#bulk-mcp-select",
+            );
+            if (sel?.value) {
+              props.onGrantAll(sel.value);
+            }
+          }}
+        >Grant All Users</button>
+        <button
+          class="btn btn--sm"
+          style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
+          ?disabled=${props.loading}
+          @click=${(e: Event) => {
+            const sel = (e.target as HTMLElement).parentElement!.querySelector<HTMLSelectElement>(
+              "#bulk-mcp-select",
+            );
+            if (sel?.value) {
+              props.onRevokeAll(sel.value);
+            }
+          }}
+        >Revoke All Users</button>
+        <div style="margin-left: auto;">
+          <button
+            class="btn btn--sm"
+            style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
+            ?disabled=${props.loading}
+            @click=${() => props.onSeed()}
+          >${props.loading ? "Seeding..." : "Seed All Users"}</button>
         </div>
-      `
-        : nothing
-    }
+      </div>
+    </div>
 
     <div class="card">
       <div class="card-body" style="overflow-x: auto;">
@@ -153,14 +194,16 @@ export function renderAdminMcps(props: AdminMcpsProps) {
           <thead>
             <tr>
               <th style="width: 24px;"></th>
-              <th>MCP</th>
-              <th>Display Name</th>
-              <th style="text-align: right;">Active Users</th>
-              <th style="text-align: right;">Total Grants</th>
+              <th style="width: 36px; text-align: right;" class="muted">#</th>
+              ${renderSortHeader(props, "email", "Email")}
+              ${renderSortHeader(props, "name", "Name")}
+              ${renderSortHeader(props, "granted", "Granted", "right")}
+              ${renderSortHeader(props, "connected", "Connected", "right")}
+              <th style="text-align: right;">Total MCPs</th>
             </tr>
           </thead>
           <tbody>
-            ${mcps.map((mcp) => renderMcpRow(props, mcp))}
+            ${sortUserRows(buildUserRows(mcps, props.users, props.userConnections), props.sortColumn, props.sortDir).map((row, idx) => renderUserRow(props, row, idx + 1))}
           </tbody>
         </table>
       </div>
@@ -168,83 +211,269 @@ export function renderAdminMcps(props: AdminMcpsProps) {
   `;
 }
 
-function renderMcpRow(props: AdminMcpsProps, mcp: AdminMcpUserAccessSummary) {
-  const isExpanded = props.expandedMcpName === mcp.mcp_name;
-  const activeCount = mcp.grants.filter((g) => g.is_active).length;
-  const revokedCount = mcp.grants.length - activeCount;
+type UserRowData = {
+  userId: string;
+  email: string;
+  displayName: string | null;
+  mcpRows: AdminUserMcpRow[];
+  grantedCount: number;
+  connectedCount: number;
+};
+
+function buildUserRows(
+  mcps: AdminMcpUserAccessSummary[],
+  users: AdminUser[] | null,
+  userConnections: Record<string, string[]> | null,
+): UserRowData[] {
+  // Build a map of userId -> grants across all MCPs
+  const userMap = new Map<
+    string,
+    { email: string; displayName: string | null; grants: Map<string, AdminMcpUserAccessGrant> }
+  >();
+
+  for (const mcp of mcps) {
+    for (const grant of mcp.grants) {
+      let entry = userMap.get(grant.user_id);
+      if (!entry) {
+        entry = { email: grant.email, displayName: grant.display_name, grants: new Map() };
+        userMap.set(grant.user_id, entry);
+      }
+      entry.grants.set(grant.mcp_name, grant);
+    }
+  }
+
+  // Also include users that have no grants at all
+  if (users) {
+    for (const user of users) {
+      if (user.status === "active" && !userMap.has(user.id)) {
+        userMap.set(user.id, {
+          email: user.email,
+          displayName: user.full_name,
+          grants: new Map(),
+        });
+      }
+    }
+  }
+
+  // Build display name map from MCPs
+  const mcpDisplayNames = new Map<string, string>();
+  for (const mcp of mcps) {
+    mcpDisplayNames.set(mcp.mcp_name, mcp.display_name);
+  }
+
+  // Build rows
+  const rows: UserRowData[] = [];
+  for (const [userId, entry] of userMap) {
+    const connectedMcps = userConnections?.[userId];
+    const mcpRows: AdminUserMcpRow[] = ALL_MCPS.map((mcp) => {
+      const grant = entry.grants.get(mcp.name);
+      return {
+        mcp_name: mcp.name,
+        display_name: mcpDisplayNames.get(mcp.name) ?? mcp.label,
+        is_active: grant?.is_active ?? false,
+        is_connected: grant?.is_connected ?? connectedMcps?.includes(mcp.name) ?? false,
+        grant_source: grant?.grant_source ?? null,
+        created_at: grant?.created_at ?? null,
+        revoked_at: grant?.revoked_at ?? null,
+      };
+    });
+
+    const managedRows = mcpRows.filter((r) => !DEDICATED_ACCESS_MCPS.has(r.mcp_name));
+    rows.push({
+      userId,
+      email: entry.email,
+      displayName: entry.displayName,
+      mcpRows,
+      grantedCount: managedRows.filter((r) => r.is_active).length,
+      connectedCount: mcpRows.filter((r) => r.is_connected).length,
+    });
+  }
+
+  return rows;
+}
+
+function sortUserRows(rows: UserRowData[], column: McpSortColumn, dir: McpSortDir): UserRowData[] {
+  const mult = dir === "asc" ? 1 : -1;
+  return rows.toSorted((a, b) => {
+    switch (column) {
+      case "email":
+        return mult * a.email.localeCompare(b.email);
+      case "name":
+        return mult * (a.displayName ?? "").localeCompare(b.displayName ?? "");
+      case "granted":
+        return mult * (a.grantedCount - b.grantedCount);
+      case "connected":
+        return mult * (a.connectedCount - b.connectedCount);
+      default:
+        return 0;
+    }
+  });
+}
+
+function renderSortHeader(
+  props: AdminMcpsProps,
+  column: McpSortColumn,
+  label: string,
+  align?: "right",
+) {
+  const isActive = props.sortColumn === column;
+  const arrow = isActive ? (props.sortDir === "asc" ? " \u25B2" : " \u25BC") : "";
+  return html`
+    <th
+      style="cursor: pointer; user-select: none;${align ? " text-align: right;" : ""}"
+      @click=${() => props.onSort(column)}
+    >${label}${isActive ? html`<span style="font-size: 0.65rem; margin-left: 3px; opacity: 0.7;">${arrow}</span>` : nothing}</th>
+  `;
+}
+
+function renderUserRow(props: AdminMcpsProps, row: UserRowData, rowNum: number) {
+  const isExpanded = props.expandedUserId === row.userId;
 
   return html`
     <tr
       style="cursor: pointer;"
-      @click=${() => props.onToggleMcp(mcp.mcp_name)}
+      @click=${() => props.onToggleUser(row.userId)}
     >
       <td style="width: 24px; text-align: center; font-size: 0.7rem;">${isExpanded ? "\u25BC" : "\u25B6"}</td>
-      <td class="mono"><strong>${mcp.mcp_name}</strong></td>
-      <td>${mcp.display_name}</td>
+      <td style="width: 36px; text-align: right; font-size: 0.75rem;" class="muted">${rowNum}</td>
+      <td class="mono" style="max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${row.email}"><strong>${row.email}</strong></td>
+      <td>${row.displayName ?? "-"}</td>
       <td style="text-align: right;">
-        <span class="pill pill--sm">${activeCount}</span>
-        ${revokedCount > 0 ? html`<span class="pill pill--sm danger" style="margin-left: 4px;" title="${revokedCount} revoked">${revokedCount} revoked</span>` : nothing}
+        <span class="pill pill--sm${row.grantedCount > 0 ? " success" : ""}">${row.grantedCount}</span>
       </td>
-      <td style="text-align: right;" class="muted">${mcp.grants.length}</td>
+      <td style="text-align: right;">
+        <span class="pill pill--sm${row.connectedCount > 0 ? " success" : ""}">${row.connectedCount}</span>
+      </td>
+      <td style="text-align: right;" class="muted">${ALL_MCPS.length - DEDICATED_ACCESS_MCPS.size}</td>
     </tr>
-    ${
-      isExpanded
-        ? html`
-          <tr>
-            <td colspan="5" style="padding: 0;">
-              <div style="padding: 8px 8px 8px 32px; background: var(--bg-subtle, rgba(255,255,255,0.03));">
-                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                  <button
-                    class="btn btn--sm"
-                    style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
-                    @click=${(e: Event) => {
-                      e.stopPropagation();
-                      props.onGrantAll(mcp.mcp_name);
-                    }}
-                  >Grant All Users</button>
-                  <button
-                    class="btn btn--sm"
-                    style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
-                    @click=${(e: Event) => {
-                      e.stopPropagation();
-                      props.onRevokeAll(mcp.mcp_name);
-                    }}
-                  >Revoke All Users</button>
-                </div>
-                ${
-                  mcp.grants.length > 0
-                    ? html`
-                    <table class="data-table" style="width: 100%; font-size: 0.82rem;">
-                      <thead>
-                        <tr>
-                          <th>Email</th>
-                          <th>Name</th>
-                          <th>Status</th>
-                          <th>Source</th>
-                          <th>Granted</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${mcp.grants
-                          .slice()
-                          .toSorted((a, b) => a.email.localeCompare(b.email))
-                          .map((grant) => renderUserGrant(props, grant))}
-                      </tbody>
-                    </table>
-                  `
-                    : html`
-                        <p class="muted" style="margin: 4px 0; font-size: 0.82rem">
-                          No grants for this MCP. Click "Grant All Users" to grant access to all active users.
-                        </p>
-                      `
-                }
-              </div>
-            </td>
-          </tr>
-        `
-        : nothing
-    }
+    ${isExpanded ? renderUserExpanded(props, row) : nothing}
+  `;
+}
+
+function renderUserExpanded(props: AdminMcpsProps, row: UserRowData) {
+  const managedRows = row.mcpRows.filter((r) => !DEDICATED_ACCESS_MCPS.has(r.mcp_name));
+  const dedicatedRows = row.mcpRows.filter((r) => DEDICATED_ACCESS_MCPS.has(r.mcp_name));
+
+  return html`
+    <tr>
+      <td colspan="7" style="padding: 0;">
+        <div style="padding: 8px 8px 8px 32px; background: var(--bg-subtle, rgba(255,255,255,0.03));">
+          <table class="data-table" style="width: 100%; font-size: 0.82rem;">
+            <thead>
+              <tr>
+                <th>MCP</th>
+                <th>Display Name</th>
+                <th>Access</th>
+                <th>Connected</th>
+                <th>Source</th>
+                <th>Granted</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${managedRows.map((mcpRow) => renderUserMcpRow(props, row.userId, mcpRow))}
+              ${
+                dedicatedRows.length > 0
+                  ? html`
+                <tr>
+                  <td colspan="7" style="padding: 6px 0 4px 0; border: none;">
+                    <div class="muted" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Company-Token MCPs (managed via dedicated pages)</div>
+                  </td>
+                </tr>
+                ${dedicatedRows.map((mcpRow) => renderDedicatedMcpRow(mcpRow))}
+              `
+                  : nothing
+              }
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderDedicatedMcpRow(mcpRow: AdminUserMcpRow) {
+  return html`
+    <tr style="opacity: 0.7;">
+      <td class="mono"><strong>${mcpRow.mcp_name}</strong></td>
+      <td>${mcpRow.display_name}</td>
+      <td><span class="pill pill--sm" style="opacity: 0.5;">Managed separately</span></td>
+      <td>${
+        mcpRow.is_connected
+          ? html`
+              <span class="pill pill--sm success">Connected</span>
+            `
+          : html`
+              <span class="pill pill--sm" style="opacity: 0.4">-</span>
+            `
+      }</td>
+      <td class="muted">-</td>
+      <td class="muted">-</td>
+      <td>
+        <span class="muted" style="font-size: 0.78rem; cursor: default;" title="Manage access via the /${mcpRow.mcp_name} admin tab">\u2192 /${mcpRow.mcp_name}</span>
+      </td>
+    </tr>
+  `;
+}
+
+function renderUserMcpRow(props: AdminMcpsProps, userId: string, mcpRow: AdminUserMcpRow) {
+  const hasGrant = mcpRow.grant_source !== null;
+  return html`
+    <tr style="${hasGrant && !mcpRow.is_active ? "opacity: 0.5;" : ""}">
+      <td class="mono"><strong>${mcpRow.mcp_name}</strong></td>
+      <td>${mcpRow.display_name}</td>
+      <td>${
+        !hasGrant
+          ? html`
+              <span class="pill pill--sm" style="opacity: 0.4">No Grant</span>
+            `
+          : mcpRow.is_active
+            ? html`
+                <span class="pill pill--sm success">Active</span>
+              `
+            : html`
+                <span class="pill pill--sm danger">Revoked</span>
+              `
+      }</td>
+      <td>${
+        mcpRow.is_connected
+          ? html`
+              <span class="pill pill--sm success">Connected</span>
+            `
+          : html`
+              <span class="pill pill--sm" style="opacity: 0.4">-</span>
+            `
+      }</td>
+      <td>${
+        mcpRow.grant_source
+          ? grantSourcePill(mcpRow.grant_source)
+          : html`
+              <span class="muted">-</span>
+            `
+      }</td>
+      <td class="mono">${formatDate(mcpRow.created_at)}</td>
+      <td>
+        ${
+          mcpRow.is_active
+            ? html`<button
+                class="btn btn--sm"
+                style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
+                @click=${(e: Event) => {
+                  e.stopPropagation();
+                  props.onRevoke(userId, mcpRow.mcp_name);
+                }}
+              >Revoke</button>`
+            : html`<button
+                class="btn btn--sm"
+                style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
+                @click=${(e: Event) => {
+                  e.stopPropagation();
+                  props.onGrant(userId, mcpRow.mcp_name);
+                }}
+              >Grant</button>`
+        }
+      </td>
+    </tr>
   `;
 }
 
@@ -311,6 +540,9 @@ function renderSetupWizardSection(props: AdminMcpsProps) {
     </div>
   `;
 }
+
+/** MCPs that bypass Layer 3 (per-user grants) and use dedicated resource-level access pages instead */
+const DEDICATED_ACCESS_MCPS = new Set(["github", "vercel", "supabase", "databricks"]);
 
 const ALL_MCPS: Array<{ name: string; label: string }> = [
   { name: "asana", label: "Asana" },
@@ -455,7 +687,7 @@ function renderGroupExpanded(props: AdminMcpsProps, group: McpGroup) {
 
   return html`
     <tr>
-      <td colspan="6" style="padding: 0;">
+      <td colspan="7" style="padding: 0;">
         <div style="padding: 12px 12px 12px 32px; background: var(--bg-subtle, rgba(255,255,255,0.03));">
           <!-- MCP Access toggles -->
           <div style="margin-bottom: 16px;">
@@ -572,47 +804,6 @@ function renderGroupExpanded(props: AdminMcpsProps, group: McpGroup) {
             }
           </div>
         </div>
-      </td>
-    </tr>
-  `;
-}
-
-function renderUserGrant(props: AdminMcpsProps, grant: AdminMcpUserAccessGrant) {
-  return html`
-    <tr style="${grant.is_active ? "" : "opacity: 0.5;"}">
-      <td class="mono" style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${grant.email}">${grant.email}</td>
-      <td>${grant.display_name ?? "-"}</td>
-      <td>${
-        grant.is_active
-          ? html`
-              <span class="pill pill--sm success">Active</span>
-            `
-          : html`
-              <span class="pill pill--sm danger">Revoked</span>
-            `
-      }</td>
-      <td>${grantSourcePill(grant.grant_source)}</td>
-      <td class="mono">${formatDate(grant.created_at)}</td>
-      <td>
-        ${
-          grant.is_active
-            ? html`<button
-              class="btn btn--sm"
-              style="color: var(--danger, #ef4444); border-color: var(--danger, #ef4444);"
-              @click=${(e: Event) => {
-                e.stopPropagation();
-                props.onRevoke(grant.user_id, grant.mcp_name);
-              }}
-            >Revoke</button>`
-            : html`<button
-              class="btn btn--sm"
-              style="background: var(--accent, #3b82f6); color: var(--accent-fg, #fff); border-color: var(--accent, #3b82f6);"
-              @click=${(e: Event) => {
-                e.stopPropagation();
-                props.onGrant(grant.user_id, grant.mcp_name);
-              }}
-            >Grant</button>`
-        }
       </td>
     </tr>
   `;

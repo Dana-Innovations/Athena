@@ -212,13 +212,25 @@ export type AdminMcpUserAccessGrant = {
   created_at: string | null;
   is_active: boolean;
   revoked_at: string | null;
+  is_connected: boolean;
 };
 
 export type AdminMcpUserAccessSummary = {
   mcp_name: string;
   display_name: string;
   user_count: number;
+  connected_count: number;
   grants: AdminMcpUserAccessGrant[];
+};
+
+export type AdminUserMcpRow = {
+  mcp_name: string;
+  display_name: string;
+  is_active: boolean;
+  is_connected: boolean;
+  grant_source: string | null;
+  created_at: string | null;
+  revoked_at: string | null;
 };
 
 export type McpGroupMember = {

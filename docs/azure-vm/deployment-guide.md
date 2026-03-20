@@ -101,7 +101,7 @@ Disk: **64 GB Premium SSD (P6)** — session files are small, Cortex workspace m
                     +-------------------+
                     |   Azure DNS Zone  |
                     | athena.sonance.com|
-                    | cortex.sonance.com|
+                    | athena-cortex.fly.dev|
                     +-------------------+
                               |
                     +-------------------+
@@ -120,7 +120,7 @@ Disk: **64 GB Premium SSD (P6)** — session files are small, Cortex workspace m
           |   | Listens: :80, :443                    |   |
           |   | athena.sonance.com -> gateway:18789   |   |
           |   | athena.../api/messages -> gw:3978     |   |
-          |   | cortex.sonance.com -> cortex:8000     |   |
+          |   | athena-cortex.fly.dev -> cortex:8000     |   |
           |   +---------------------------------------+   |
           |        |                    |                  |
           |        v                    v                  |
@@ -173,7 +173,7 @@ Before starting, you need:
 
 - [ ] **Azure account** with permissions to create VMs and DNS zones
 - [ ] **Azure CLI** installed locally (`az` command) — [Install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
-- [ ] **Domain name** — two A records will point to the VM (e.g., `athena.sonance.com`, `cortex.sonance.com`)
+- [ ] **Domain name** — two A records will point to the VM (e.g., `athena.sonance.com`, `athena-cortex.fly.dev`)
 - [ ] **Supabase project** — with URL, anon key, and service role key
 - [ ] **Anthropic API key** — for the AI proxy (Apollo)
 - [ ] **Channel bot tokens** (whichever channels you want to enable):
@@ -234,10 +234,10 @@ Save the public IP address — you'll need it for DNS.
 
 Create A records pointing to your VM's public IP:
 
-| Record               | Type | Value            |
-| -------------------- | ---- | ---------------- |
-| `athena.sonance.com` | A    | `<VM_PUBLIC_IP>` |
-| `cortex.sonance.com` | A    | `<VM_PUBLIC_IP>` |
+| Record                  | Type | Value            |
+| ----------------------- | ---- | ---------------- |
+| `athena.sonance.com`    | A    | `<VM_PUBLIC_IP>` |
+| `athena-cortex.fly.dev` | A    | `<VM_PUBLIC_IP>` |
 
 If using Azure DNS:
 
@@ -265,7 +265,7 @@ Wait for DNS propagation (usually 1-5 minutes). Verify:
 
 ```bash
 dig athena.sonance.com +short
-dig cortex.sonance.com +short
+dig athena-cortex.fly.dev +short
 ```
 
 ---
@@ -520,13 +520,13 @@ athena.sonance.com {
 }
 
 # Cortex API — REST endpoints, Apollo proxy, MCP bridge
-cortex.sonance.com {
+athena-cortex.fly.dev {
     reverse_proxy cortex:8000
 }
 CADDYFILE
 ```
 
-Replace `athena.sonance.com` and `cortex.sonance.com` with your actual domain names.
+Replace `athena.sonance.com` and `athena-cortex.fly.dev` with your actual domain names.
 
 ---
 
@@ -725,7 +725,7 @@ First startup takes 5-10 minutes for Docker to build both images. Subsequent res
 curl -s https://athena.sonance.com/health | jq .
 # Expected: {"status":"healthy","version":"1.0.0","service":"cortex-api"}
 
-curl -s https://cortex.sonance.com/health | jq .
+curl -s https://athena-cortex.fly.dev/health | jq .
 # Expected: {"status":"healthy","version":"1.0.0","service":"cortex-api"}
 
 # 2. Check container status

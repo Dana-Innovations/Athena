@@ -294,7 +294,11 @@ export type AppViewState = {
   adminDatabricksCatalogs: AdminDatabricksCatalogSummary[] | null;
   adminDatabricksExpandedUserId: string | null;
   adminMcpUserAccess: AdminMcpUserAccessSummary[] | null;
+  adminMcpUserConnections: Record<string, string[]> | null;
   adminMcpExpandedName: string | null;
+  adminMcpExpandedUserId: string | null;
+  adminMcpSortColumn: "email" | "name" | "granted" | "connected";
+  adminMcpSortDir: "asc" | "desc";
   adminMcpSetupConfig: Array<{
     mcp_name: string;
     display_name: string;

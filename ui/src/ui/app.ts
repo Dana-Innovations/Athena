@@ -378,7 +378,11 @@ export class OpenClawApp extends LitElement {
     | null = null;
   @state() adminDatabricksExpandedUserId: string | null = null;
   @state() adminMcpUserAccess: import("./types-admin.js").AdminMcpUserAccessSummary[] | null = null;
+  @state() adminMcpUserConnections: Record<string, string[]> | null = null;
   @state() adminMcpExpandedName: string | null = null;
+  @state() adminMcpExpandedUserId: string | null = null;
+  @state() adminMcpSortColumn: "email" | "name" | "granted" | "connected" = "email";
+  @state() adminMcpSortDir: "asc" | "desc" = "asc";
   @state() adminMcpSetupConfig: Array<{
     mcp_name: string;
     display_name: string;
